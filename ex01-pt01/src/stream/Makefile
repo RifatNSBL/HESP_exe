@@ -25,17 +25,19 @@ all: mk-target-dir $(targets)
 mk-target-dir:
 	mkdir -p $(BUILD_DIR)
 
-
 # build rules
 
 $(BUILD_DIR)/$(TEST_CASE)-base: $(TEST_CASE)-base.cpp $(TEST_CASE)-util.h ../util.h
 	g++ -O3 -march=native -std=c++17 -o $(BUILD_DIR)/$(TEST_CASE)-base $(TEST_CASE)-base.cpp
+	./$(BUILD_DIR)/$(TEST_CASE)-base
 
 $(BUILD_DIR)/$(TEST_CASE)-omp-host: $(TEST_CASE)-omp-host.cpp $(TEST_CASE)-util.h ../util.h
 	g++ -O3 -march=native -std=c++17 -fopenmp -o $(BUILD_DIR)/$(TEST_CASE)-omp-host $(TEST_CASE)-omp-host.cpp
+	./$(BUILD_DIR)/$(TEST_CASE)-omp-host
 
 $(BUILD_DIR)/$(TEST_CASE)-cuda: $(TEST_CASE)-cuda.cu $(TEST_CASE)-util.h ../util.h
 	nvcc -O3 -arch=sm_89 -o $(BUILD_DIR)/$(TEST_CASE)-cuda $(TEST_CASE)-cuda.cu
+	./$(BUILD_DIR)/$(TEST_CASE)-cuda
 
 # aliases without build directory
 

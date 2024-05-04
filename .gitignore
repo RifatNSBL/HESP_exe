@@ -1,5 +1,7 @@
 # Prerequisites
 *.d
+*.png
+*.ppm
 
 # Compiled Object files
 *.slo
@@ -30,3 +32,8 @@
 *.exe
 *.out
 *.app
+
+
+# Directories
+.vscode
+build
