@@ -2,6 +2,7 @@
 *.d
 *.png
 *.ppm
+*.vtk
 
 # Compiled Object files
 *.slo
