@@ -2,15 +2,17 @@
 
 TEST_CASE = molecular_dynamics
 BUILD_DIR = build
+OUTPUT_DIR = visualization
 
 # all
 
-TIME_STEP    = 0.000001
-NUM_STEPS = 1000000
-DELTA   = 1
-EPSILON = 1
+TIME_STEP    = 0.0003
+NUM_STEPS = 50000
+SIGMA   = 1
+EPSILON = 2
+INPUT_FILE = points.txt
 
-PARAMETERS = ${TIME_STEP} ${NUM_STEPS} ${DELTA} ${EPSILON}
+PARAMETERS = ${TIME_STEP} ${NUM_STEPS} ${SIGMA} ${EPSILON} $(INPUT_FILE)
 
 
 targets = $(BUILD_DIR)/$(TEST_CASE)
@@ -26,6 +28,8 @@ mk-target-dir:
 # build rules
 
 $(BUILD_DIR)/$(TEST_CASE): $(TEST_CASE).cu
+	rm -r $(OUTPUT_DIR) && mkdir $(OUTPUT_DIR)
+	cp $(INPUT_FILE) $(BUILD_DIR) 
 	nvcc -O3 -arch=sm_89 $(TEST_CASE).cu -o $(BUILD_DIR)/$(TEST_CASE)
 	./$(BUILD_DIR)/$(TEST_CASE) $(PARAMETERS)
 
