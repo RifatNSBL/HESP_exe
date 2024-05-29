@@ -6,11 +6,11 @@ OUTPUT_DIR = visualization
 
 # all
 
-TIME_STEP    = 0.0003
-NUM_STEPS = 50000
+TIME_STEP    = 0.003
+NUM_STEPS = 5000
 SIGMA   = 1
 EPSILON = 2
-INPUT_FILE = points.txt
+INPUT_FILE = points_test.txt
 
 PARAMETERS = ${TIME_STEP} ${NUM_STEPS} ${SIGMA} ${EPSILON} $(INPUT_FILE)
 
@@ -27,9 +27,10 @@ mk-target-dir:
 
 # build rules
 
-$(BUILD_DIR)/$(TEST_CASE): $(TEST_CASE).cu
+
+$(BUILD_DIR)/$(TEST_CASE): $(TEST_CASE).cu Force.h Molecule.h util.h
 	rm -r $(OUTPUT_DIR) && mkdir $(OUTPUT_DIR)
-	cp $(INPUT_FILE) $(BUILD_DIR) 
+	cp $(INPUT_FILE) $(BUILD_DIR)
 	nvcc -O3 -arch=sm_89 $(TEST_CASE).cu -o $(BUILD_DIR)/$(TEST_CASE)
 	./$(BUILD_DIR)/$(TEST_CASE) $(PARAMETERS)
 
