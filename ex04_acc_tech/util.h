@@ -72,7 +72,7 @@ void writeVTK(int index, size_t num_molecules, Molecule *points){
     vtk_output << "SCALARS m double\n";
     vtk_output << "LOOKUP_TABLE default\n";
     for(int i = 0; i < num_molecules; i++)
-        vtk_output << std::fixed << std::setprecision(6) << points[i].mass / 10  << "\n";
+        vtk_output << std::fixed << std::setprecision(6) << points[i].mass / 5  << "\n";
         
     vtk_output << "VECTORS v double\n";
 

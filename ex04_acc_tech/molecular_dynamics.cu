@@ -5,20 +5,28 @@
 #include "util.h"
 
 __device__ void update_acc(Molecule &particle, Force &force){
-    
-    
-    particle.xa = force.x / particle.mass;
-    particle.ya = force.y / particle.mass;
-    particle.za = force.z / particle.mass;
+    Molecule _particle = particle;
+    Force    _force = force;
+
+    _particle.xa = _force.x / _particle.mass;
+    _particle.ya = _force.y / _particle.mass;
+    _particle.za = _force.z / _particle.mass;
+
+    particle = _particle;
+    force    = _force;
 }
 
 __device__ double min_dist(double particle_i, double particle_j, size_t box_size){
-    if (abs(particle_i - particle_j) < ((double)box_size / 2)) return particle_i - particle_j;
-    else if (particle_i < particle_j) return particle_i + (box_size - particle_j);
-    else return particle_i - (box_size + particle_j);
+    if      (abs(particle_i - particle_j) < ((double)box_size / 2)) 
+            return particle_i - particle_j;
+
+    else if (particle_i < particle_j) 
+            return particle_i + (box_size - particle_j);
+
+    else    return particle_i - (box_size + particle_j);
 }
 
-__global__ void calculate_forces(Molecule *particle, Force *force, size_t num_molecules,
+__global__ void calculate_forces(Molecule *particle, size_t num_molecules,
                                  double sigma, double eps, size_t box_size){
         int index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index < num_molecules){
@@ -30,35 +38,31 @@ __global__ void calculate_forces(Molecule *particle, Force *force, size_t num_mo
             _force_i.y = 0;
             _force_i.z = 0;
 
-            double sigma_sqr = sigma * sigma;
+            double sigma_sqr  = sigma * sigma;
             double cutoff_sqr = 2.5 * 2.5 * sigma_sqr;
             for(auto i = 0; i < num_molecules; i++){
                 if (i == index) continue;
                 Molecule _particle_i = particle[i];
                 
-                // double x_proj = _particle.x - _particle_i.x;
                 double x_proj = min_dist(_particle.x , _particle_i.x, box_size);
-
                 double y_proj = min_dist(_particle.y , _particle_i.y, box_size);
-
                 double z_proj = min_dist(_particle.z , _particle_i.z, box_size);
 
-                
                 double dist_sqr = x_proj * x_proj  + y_proj * y_proj + z_proj * z_proj;
+
                 if (dist_sqr < cutoff_sqr){
                     double factor_sqr = sigma_sqr / dist_sqr;
                     double factor_hex = factor_sqr * factor_sqr * factor_sqr;
 
                     double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
+
                     _force_i.x +=  res * x_proj;
                     _force_i.y +=  res * y_proj;
                     _force_i.z +=  res * z_proj;
                 }
             }
 
-            force[index] = _force_i;
-
-            update_acc(particle[index], force[index]); // a(t + 1/2 dt)
+            update_acc(particle[index], _force_i); // a(t + 1/2 dt)
         }
 }
 
@@ -75,10 +79,11 @@ __global__ void integration_step_begin(Molecule *particle, int num_molecules,
         _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr)/2; 
         _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr)/2;
 
+        // if particle flies out from left -> move it to right
         if (_particle.x < 0) _particle.x +=  box_size; // implicit type cast
         if (_particle.y < 0) _particle.y +=  box_size;
         if (_particle.z < 0) _particle.z +=  box_size;
-
+        // if particle flies out from right -> move it to left
         if (_particle.x > box_size) _particle.x -=  box_size;
         if (_particle.y > box_size) _particle.y -=  box_size;
         if (_particle.z > box_size) _particle.z -=  box_size;
@@ -92,7 +97,7 @@ __global__ void integration_step_begin(Molecule *particle, int num_molecules,
 }
 
 __global__ void integration_step_end(Molecule *particle, int num_molecules, 
-                                 double time_step, double sigma, double eps){
+                                     double time_step, double sigma, double eps){
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_molecules){
@@ -130,15 +135,11 @@ int main(int argc, char *argv[]){
     size_t size_forces =  num_molecules * sizeof(Force);
 
     Molecule *grid_host, *grid_device;
-    Force *forces_device;
 
     cudaMallocHost(&grid_host, size_molecule);
     cudaMalloc(&grid_device, size_molecule);
 
-    cudaMalloc(&forces_device, size_forces);
-
     fill_particles(grid_host, num_molecules, file);
-
 
     cudaMemcpy(grid_device, grid_host, size_molecule, cudaMemcpyHostToDevice);
 
@@ -150,7 +151,7 @@ int main(int argc, char *argv[]){
         // most stuff should be done here
         integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, time_step, 
                                                           sigma, eps, box_size);
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, forces_device, num_molecules, 
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, 
                                                     sigma, eps, box_size);
         integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, time_step, sigma, eps);
 
@@ -167,6 +168,5 @@ int main(int argc, char *argv[]){
     }
 
     cudaFree(grid_device);
-    cudaFree(forces_device);
     cudaFreeHost(grid_host);
 }
