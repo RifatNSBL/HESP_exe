@@ -18,14 +18,8 @@ void get_values(std::vector<double> &values, std::string line){
 
 }
 
-void find_max(std::vector<double> values, double &max_x, double &max_y, double &max_z){
-    max_x = values[1] > max_x ? values[1] : max_x;
-    max_y = values[2] > max_y ? values[2] : max_y;
-    max_z = values[3] > max_z ? values[3] : max_z;
-}
 
-void fill_particles(Molecule *grid, size_t num_molecules, std::ifstream &file, 
-                    double &max_x, double &max_y, double &max_z){
+void fill_particles(Molecule *grid, size_t num_molecules, std::ifstream &file){
 
     for(auto i = 0; i < num_molecules; i++){
         if(file.good()){
@@ -34,7 +28,6 @@ void fill_particles(Molecule *grid, size_t num_molecules, std::ifstream &file,
             
             std::vector<double> values;
             get_values(values, line);
-            find_max(values, max_x, max_y, max_z);
             grid[i].mass = values[0];
             grid[i].x = values[1];
             grid[i].y = values[2];
@@ -79,7 +72,7 @@ void writeVTK(int index, size_t num_molecules, Molecule *points){
     vtk_output << "SCALARS m double\n";
     vtk_output << "LOOKUP_TABLE default\n";
     for(int i = 0; i < num_molecules; i++)
-        vtk_output << std::fixed << std::setprecision(6) << points[i].mass  << "\n";
+        vtk_output << std::fixed << std::setprecision(6) << points[i].mass / 10  << "\n";
         
     vtk_output << "VECTORS v double\n";
 

@@ -3,6 +3,7 @@
 *.png
 *.ppm
 *.vtk
+*.pdf
 
 # Compiled Object files
 *.slo

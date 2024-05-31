@@ -20,26 +20,26 @@ int main() {
     // Example usage
     std::string filePath = "points.txt";
     std::ofstream file(filePath);
-    file << 1000 << "\n"; // change this if use different number of particles
+    file << 2000 << "\n"; // change this if use different number of particles
     for(auto x = 0; x < 10; x++){
         for(auto y = 0; y < 10; y++){
             for(auto z = 0; z < 10; z++){
-                std::vector<double> line = {1, 5 * static_cast<double>(x) + 0.5, 5 * static_cast<double>(y) + 0.5, 
-                                            5 * static_cast<double>(z) + 0.5, -1, 0, 0, 0, 0, 0};
+                std::vector<double> line = {1, static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5, 
+                                            static_cast<double>(z) + 0.5, -1, 0, 0, 0, 0, 0};
                 writeLineToFile(file, line);
                 }
         }
     }
 
-    // for(auto x = 15; x < 25; x++){
-    //     for(auto y = 0; y < 10; y++){
-    //         for(auto z = 0; z < 10; z++){
-    //             std::vector<double> line = {3, static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5, 
-    //                                         static_cast<double>(z) + 0.5, 1, 0, 0, 0, 0, 0};
-    //             writeLineToFile(file, line);
-    //             }
-    //     }
-    // }
+    for(auto x = 15; x < 25; x++){
+        for(auto y = 0; y < 10; y++){
+            for(auto z = 0; z < 10; z++){
+                std::vector<double> line = {3, static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5, 
+                                            static_cast<double>(z) + 0.5, 1, 0, 0, 0, 0, 0};
+                writeLineToFile(file, line);
+                }
+        }
+    }
     file.close();
     return 0;
 }

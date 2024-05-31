@@ -6,31 +6,43 @@
 
 __device__ void update_acc(Molecule &particle, Force &force){
     
+    
     particle.xa = force.x / particle.mass;
     particle.ya = force.y / particle.mass;
     particle.za = force.z / particle.mass;
 }
 
+__device__ double min_dist(double particle_i, double particle_j, size_t box_size){
+    if (abs(particle_i - particle_j) < ((double)box_size / 2)) return particle_i - particle_j;
+    else if (particle_i < particle_j) return particle_i + (box_size - particle_j);
+    else return particle_i - (box_size + particle_j);
+}
+
 __global__ void calculate_forces(Molecule *particle, Force *force, size_t num_molecules,
-                                 double sigma, double eps){
+                                 double sigma, double eps, size_t box_size){
         int index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index < num_molecules){
+            Molecule _particle = particle[index];
+
+            Force _force_i;
             
-            double particle_pos_x = particle[index].x;
-            double particle_pos_y = particle[index].y;
-            double particle_pos_z = particle[index].z;
-            
-            double f_x = 0;
-            double f_y = 0;
-            double f_z = 0;
+            _force_i.x = 0;
+            _force_i.y = 0;
+            _force_i.z = 0;
+
             double sigma_sqr = sigma * sigma;
             double cutoff_sqr = 2.5 * 2.5 * sigma_sqr;
             for(auto i = 0; i < num_molecules; i++){
                 if (i == index) continue;
+                Molecule _particle_i = particle[i];
                 
-                double x_proj = particle_pos_x - particle[i].x;
-                double y_proj = particle_pos_y - particle[i].y;
-                double z_proj = particle_pos_z - particle[i].z;
+                // double x_proj = _particle.x - _particle_i.x;
+                double x_proj = min_dist(_particle.x , _particle_i.x, box_size);
+
+                double y_proj = min_dist(_particle.y , _particle_i.y, box_size);
+
+                double z_proj = min_dist(_particle.z , _particle_i.z, box_size);
+
                 
                 double dist_sqr = x_proj * x_proj  + y_proj * y_proj + z_proj * z_proj;
                 if (dist_sqr < cutoff_sqr){
@@ -38,15 +50,13 @@ __global__ void calculate_forces(Molecule *particle, Force *force, size_t num_mo
                     double factor_hex = factor_sqr * factor_sqr * factor_sqr;
 
                     double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
-                    f_x +=  res * x_proj;
-                    f_y +=  res * y_proj;
-                    f_z +=  res * z_proj;
+                    _force_i.x +=  res * x_proj;
+                    _force_i.y +=  res * y_proj;
+                    _force_i.z +=  res * z_proj;
                 }
             }
 
-            force[index].x = f_x;
-            force[index].y = f_y;
-            force[index].z = f_z;
+            force[index] = _force_i;
 
             update_acc(particle[index], force[index]); // a(t + 1/2 dt)
         }
@@ -54,27 +64,30 @@ __global__ void calculate_forces(Molecule *particle, Force *force, size_t num_mo
 
 __global__ void integration_step_begin(Molecule *particle, int num_molecules, 
                                        double time_step, double sigma, double eps, 
-                                       double max_pos_x, double max_pos_y, double max_pos_z){
+                                       size_t box_size){
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_molecules){
         double time_step_sqr = time_step * time_step;
-        particle[index].x += particle[index].xv * time_step + (particle[index].xa * time_step_sqr)/2; // x(t + dt) = x(t) + v(t) * dt + a(t) * dt² / 2
-        particle[index].y += particle[index].yv * time_step + (particle[index].ya * time_step_sqr)/2; 
-        particle[index].z += particle[index].zv * time_step + (particle[index].za * time_step_sqr)/2;
+        Molecule _particle = particle[index];
 
-        if (particle[index].x < 0) particle[index].x +=  max_pos_x;
-        if (particle[index].y < 0) particle[index].y +=  max_pos_y;
-        if (particle[index].z < 0) particle[index].z +=  max_pos_z;
+        _particle.x += _particle.xv * time_step + (_particle.xa * time_step_sqr)/2; // x(t + dt) = x(t) + v(t) * dt + a(t) * dt² / 2
+        _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr)/2; 
+        _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr)/2;
 
-        if (particle[index].x > max_pos_x) particle[index].x -=  max_pos_x;
-        if (particle[index].y > max_pos_y) particle[index].y -=  max_pos_y;
-        if (particle[index].z > max_pos_z) particle[index].z -=  max_pos_z;
+        if (_particle.x < 0) _particle.x +=  box_size; // implicit type cast
+        if (_particle.y < 0) _particle.y +=  box_size;
+        if (_particle.z < 0) _particle.z +=  box_size;
 
-        particle[index].xv += particle[index].xa * time_step / 2; // v(t + 1/2 dt) = v(t) + a(t) * dt / 2
-        particle[index].yv += particle[index].ya * time_step / 2;
-        particle[index].zv += particle[index].za * time_step / 2;
+        if (_particle.x > box_size) _particle.x -=  box_size;
+        if (_particle.y > box_size) _particle.y -=  box_size;
+        if (_particle.z > box_size) _particle.z -=  box_size;
 
+        _particle.xv += _particle.xa * time_step / 2; // v(t + 1/2 dt) = v(t) + a(t) * dt / 2
+        _particle.yv += _particle.ya * time_step / 2;
+        _particle.zv += _particle.za * time_step / 2;
+
+        particle[index] = _particle;
         }
 }
 
@@ -83,10 +96,13 @@ __global__ void integration_step_end(Molecule *particle, int num_molecules,
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_molecules){
+        Molecule _particle = particle[index];
         
-        particle[index].xv += particle[index].xa * time_step / 2; // v(t + dt) = v(t + 1/2 dt) + a(t + dt) * dt / 2
-        particle[index].yv += particle[index].ya * time_step / 2;
-        particle[index].zv += particle[index].za * time_step / 2;
+        _particle.xv += _particle.xa * time_step / 2; // v(t + dt) = v(t + 1/2 dt) + a(t + dt) * dt / 2
+        _particle.yv += _particle.ya * time_step / 2;
+        _particle.zv += _particle.za * time_step / 2;
+
+        particle[index] = _particle;
     }
 }
 
@@ -100,9 +116,6 @@ int main(int argc, char *argv[]){
     size_t box_size = atoi(argv[6]);
 
     size_t num_molecules = 0;
-    double max_x = 0;
-    double max_y = 0;
-    double max_z = 0;
 
     std::ifstream file;
     file.open(patricle_datafile);
@@ -124,15 +137,8 @@ int main(int argc, char *argv[]){
 
     cudaMalloc(&forces_device, size_forces);
 
-    fill_particles(grid_host, num_molecules, file, max_x, max_y, max_z);
+    fill_particles(grid_host, num_molecules, file);
 
-    size_t num_blocks_x = ceil(max_x / box_size);
-    size_t num_blocks_y = ceil(max_y / box_size);
-    size_t num_blocks_z = ceil(max_z / box_size);
-
-    double max_pos_x = num_blocks_x * box_size;
-    double max_pos_y = num_blocks_y * box_size;
-    double max_pos_z = num_blocks_z * box_size;
 
     cudaMemcpy(grid_device, grid_host, size_molecule, cudaMemcpyHostToDevice);
 
@@ -143,8 +149,9 @@ int main(int argc, char *argv[]){
         auto start = std::chrono::steady_clock::now();
         // most stuff should be done here
         integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, time_step, 
-                                                          sigma, eps, max_pos_x, max_pos_y, max_pos_z);
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, forces_device, num_molecules, sigma, eps);
+                                                          sigma, eps, box_size);
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, forces_device, num_molecules, 
+                                                    sigma, eps, box_size);
         integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, time_step, sigma, eps);
 
         if (i % 10 == 0){
