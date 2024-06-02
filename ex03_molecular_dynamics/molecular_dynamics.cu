@@ -11,40 +11,40 @@ __device__ void update_acc(Molecule &particle, Force &force){
     particle.za = force.z / particle.mass;
 }
 
-__global__ void calculate_forces(Molecule *particle, Force *force, size_t num_molecules,
+__global__ void calculate_forces(Molecule *particle, size_t num_molecules,
                                  double sigma, double eps){
         int index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index < num_molecules){
+            Molecule _particle = particle[index];
+
+            Force _force_i;
             
-            double particle_pos_x = particle[index].x;
-            double particle_pos_y = particle[index].y;
-            double particle_pos_z = particle[index].z;
-            
-            double f_x = 0;
-            double f_y = 0;
-            double f_z = 0;
-            double sigma_sqr = sigma * sigma;
+            _force_i.x = 0;
+            _force_i.y = 0;
+            _force_i.z = 0;
+
+            double sigma_sqr  = sigma * sigma;
             for(auto i = 0; i < num_molecules; i++){
                 if (i == index) continue;
-                double x_proj = particle_pos_x - particle[i].x;
-                double y_proj = particle_pos_y - particle[i].y;
-                double z_proj = particle_pos_z - particle[i].z;
+                Molecule _particle_i = particle[i];
                 
+                double x_proj = _particle.x - _particle_i.x;
+                double y_proj = _particle.y - _particle_i.y;
+                double z_proj = _particle.z - _particle_i.z;
+
                 double dist_sqr = x_proj * x_proj  + y_proj * y_proj + z_proj * z_proj;
+
                 double factor_sqr = sigma_sqr / dist_sqr;
                 double factor_hex = factor_sqr * factor_sqr * factor_sqr;
 
                 double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
-                f_x +=  res * x_proj;
-                f_y +=  res * y_proj;
-                f_z +=  res * z_proj;
+
+                _force_i.x +=  res * x_proj;
+                _force_i.y +=  res * y_proj;
+                _force_i.z +=  res * z_proj;
             }
 
-            force[index].x = f_x;
-            force[index].y = f_y;
-            force[index].z = f_z;
-
-            update_acc(particle[index], force[index]); // a(t + 1/2 dt)
+            update_acc(particle[index], _force_i); // a(t + 1/2 dt)
         }
 }
 
@@ -79,37 +79,23 @@ __global__ void integration_step_end(Molecule *particle, int num_molecules,
 
 int main(int argc, char *argv[]){
     
-    double time_step = atof(argv[1]);
-    int num_steps = atoi(argv[2]);
-    double sigma = atof(argv[3]); // stable distance = abs_dist * pow(0.5, 1/6)
-    double eps = atof(argv[4]);
-    std::string name = argv[5];
+    double time_step = 0.003;
+    int num_steps = 5;
+    double sigma = 1; // stable distance = abs_dist * pow(0.5, 1/6)
+    double eps = 2;
 
-    size_t num_molecules = 0;
-    
-    std::ifstream file;
-    file.open(name);
+    size_t num_molecules = 1000;
 
-    if (file.is_open()){
-        std::string line;
-        std::getline(file, line);
-        num_molecules = std::stoi(line);    
-    }
 
     size_t size_molecule = num_molecules * sizeof(Molecule);
-    size_t size_forces =  num_molecules * sizeof(Force);
 
-    Molecule *grid_host, *grid_device;
-    Force *forces_device;
+    Molecule *grid;
 
-    cudaMallocHost(&grid_host, size_molecule);
-    cudaMalloc(&grid_device, size_molecule);
+    cudaMallocManaged(&grid, size_molecule);
 
-    cudaMalloc(&forces_device, size_forces);
+    fill_particles_on(grid, num_molecules);
 
-    fill_particles(grid_host, num_molecules, file);
-
-    cudaMemcpy(grid_device, grid_host, size_molecule, cudaMemcpyHostToDevice);
+    cudaMemPrefetchAsync(grid, size_molecule, 0);
 
     int NUM_THREAD = 512;
     int NUM_BLOCK = (num_molecules + NUM_THREAD - 1) / NUM_THREAD;
@@ -117,23 +103,20 @@ int main(int argc, char *argv[]){
     for(int i = 0; i < num_steps; i++){
         auto start = std::chrono::steady_clock::now();
         // most stuff should be done here
-        integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, time_step, sigma, eps);
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, forces_device, num_molecules, sigma, eps);
-        integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(grid_device, num_molecules, time_step, sigma, eps);
+        integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, time_step, sigma, eps);
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, sigma, eps);
+        integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, time_step, sigma, eps);
 
         if (i % 10 == 0){
-            cudaDeviceSynchronize();
+            //cudaDeviceSynchronize();
             auto end = std::chrono::steady_clock::now();
             auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start); // don't know if it's correct
 
             std::cout << "Iteration took " << time.count() << " milliseconds\n";
-            cudaMemcpy(grid_host, grid_device, size_molecule, cudaMemcpyDeviceToHost);
-            calculate_energy(grid_host, num_molecules, sigma, eps);
-            writeVTK(i, num_molecules, grid_host);
+            //calculate_energy(grid, num_molecules, sigma, eps);
+            //writeVTK(i, num_molecules, grid);
         }
     }
 
-    cudaFree(grid_device);
-    cudaFree(forces_device);
-    cudaFreeHost(grid_host);
+    cudaFree(grid);
 }

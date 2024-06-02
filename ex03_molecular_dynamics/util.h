@@ -47,6 +47,28 @@ void fill_particles(Molecule *grid, size_t num_molecules, std::ifstream &file){
     file.close();
 }
 
+void fill_particles_on(Molecule *grid, size_t num_molecules){
+    int i = 0;
+    for(auto x = 0; x < 10; x++){
+        for(auto y = 0; y < 10; y++){
+            for(auto z = 0; z < 10; z++){
+                grid[i].mass = 1;
+                grid[i].x = static_cast<double>(x);
+                grid[i].y = static_cast<double>(y);
+                grid[i].z = static_cast<double>(z);
+                grid[i].xv = 1;
+                grid[i].yv = 0;
+                grid[i].zv = 0;
+                grid[i].xa = 0;
+                grid[i].ya = 0;
+                grid[i].za = 0;
+                i++;
+            }
+
+        }
+    }
+}
+
 
 void writeVTK(int index, size_t num_molecules, Molecule *points){
     std::string name = "visualization/output_" + std::to_string(index) + ".vtk";

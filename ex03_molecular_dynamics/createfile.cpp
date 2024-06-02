@@ -20,10 +20,10 @@ int main() {
     // Example usage
     std::string filePath = "points.txt";
     std::ofstream file(filePath);
-    file << 2000 << "\n"; // change this if use different number of particles
-    for(auto x = 0; x < 10; x++){
-        for(auto y = 0; y < 10; y++){
-            for(auto z = 0; z < 10; z++){
+    file << 125 << "\n"; // change this if use different number of particles
+    for(auto x = 0; x < 5; x++){
+        for(auto y = 0; y < 5; y++){
+            for(auto z = 0; z < 5; z++){
                 std::vector<double> line = {1, static_cast<double>(x), static_cast<double>(y), 
                                             static_cast<double>(z), -1, 0, 0, 0, 0, 0};
                 writeLineToFile(file, line);
