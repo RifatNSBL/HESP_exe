@@ -25,16 +25,17 @@ void writeLineToFile(std::ofstream& file, const std::vector<double>& line) {
 
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     // Example usage
+    size_t cube_size = atoi(argv[1]) / 2;
     std::string filePath = "points.txt";
     std::ofstream file(filePath);
     double min = -1.0;
     double max = 1.0;
-    file << 2744 << "\n"; // change this if use different number of particles
-    for(auto x = 0; x < 14; x++){
-        for(auto y = 0; y < 14; y++){
-            for(auto z = 0; z < 14; z++){
+    file << pow(cube_size, 3) << "\n";
+    for(auto x = 0; x < cube_size; x++){
+        for(auto y = 0; y < cube_size; y++){
+            for(auto z = 0; z < cube_size; z++){
                 std::vector<double> line = {1, 2* static_cast<double>(x) + 0.5, 2* static_cast<double>(y) + 0.5, 
                                             2* static_cast<double>(z) + 0.5, generateRandomNumber(min, max), 
                                             generateRandomNumber(min, max), generateRandomNumber(min, max), 0, 0, 0};

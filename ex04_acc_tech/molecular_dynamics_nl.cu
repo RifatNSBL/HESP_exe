@@ -1,8 +1,10 @@
 #include <chrono>
-
+#include <list>
+#include <vector>
 #include "Molecule.h"
 #include "Force.h"
 #include "util.h"
+#include "neighbourList.cuh"
 
 __device__ void update_acc(Molecule &particle, Force &force){
     Molecule _particle = particle;
@@ -25,7 +27,7 @@ __device__ double min_dist(double particle_i, double particle_j, size_t box_size
     else    return particle_i - (box_size + particle_j);
 }
 
-__global__ void calculate_forces(Molecule *particle, size_t num_molecules,
+__global__ void calculate_forces(Molecule *particle, size_t num_molecules,neighbourList* neighbour_list,
                                  double sigma, double eps, size_t box_size){
         int index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index < num_molecules){
@@ -38,10 +40,11 @@ __global__ void calculate_forces(Molecule *particle, size_t num_molecules,
             _force_i.z = 0;
 
             double sigma_sqr  = sigma * sigma;
-            double cutoff_sqr = 2.5 * 2.5 * sigma_sqr;
-            for(auto i = 0; i < num_molecules; i++){
-                if (i == index) continue;
-                Molecule _particle_i = particle[i];
+            neighbourList _neighbour_list = neighbour_list[index];
+            Node_list* temp = _neighbour_list.head;
+
+            while (temp != NULL){
+                Molecule _particle_i = particle[temp->id];
                 
                 double x_proj = min_dist(_particle.x , _particle_i.x, box_size);
                 double y_proj = min_dist(_particle.y , _particle_i.y, box_size);
@@ -49,20 +52,54 @@ __global__ void calculate_forces(Molecule *particle, size_t num_molecules,
 
                 double dist_sqr = x_proj * x_proj  + y_proj * y_proj + z_proj * z_proj;
 
-                if (dist_sqr < cutoff_sqr){
-                    double factor_sqr = sigma_sqr / dist_sqr;
-                    double factor_hex = factor_sqr * factor_sqr * factor_sqr;
+                double factor_sqr = sigma_sqr / dist_sqr;
+                double factor_hex = factor_sqr * factor_sqr * factor_sqr;
 
-                    double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
+                double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
 
-                    _force_i.x +=  res * x_proj;
-                    _force_i.y +=  res * y_proj;
-                    _force_i.z +=  res * z_proj;
-                }
+                _force_i.x +=  res * x_proj;
+                _force_i.y +=  res * y_proj;
+                _force_i.z +=  res * z_proj;
+
+                temp = temp->next;
             }
 
             update_acc(particle[index], _force_i); // a(t + 1/2 dt)
         }
+}
+
+__global__ void  generate_neighbour_list(Molecule *particle, neighbourList* neighbour_list, 
+                                   const size_t num_molecules, double sigma, size_t box_size){
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < num_molecules){
+        neighbourList _neighbour_list = neighbour_list[index];
+        if (!isEmpty(&_neighbour_list)){
+            freeList(&_neighbour_list);
+            initNode_list(&_neighbour_list);
+        }
+        Molecule _particle = particle[index];
+
+        double sigma_sqr  = sigma * sigma;
+        double cutoff_sqr = 2.5 * 2.5 * sigma_sqr;
+
+        for(auto i = 0; i < num_molecules; i++){
+            if (i == index) continue;
+            
+            Molecule _particle_i = particle[i];
+                    
+            double x_proj = min_dist(_particle.x , _particle_i.x, box_size);
+            double y_proj = min_dist(_particle.y , _particle_i.y, box_size);
+            double z_proj = min_dist(_particle.z , _particle_i.z, box_size);
+
+            double dist_sqr = x_proj * x_proj  + y_proj * y_proj + z_proj * z_proj;
+
+            if (dist_sqr < cutoff_sqr){
+                appendNode_list(&_neighbour_list, i);
+                }
+            }
+        neighbour_list[index] = _neighbour_list;
+        if (index == 999) printList(&neighbour_list[index]);
+    }
 }
 
 __global__ void integration_step_begin(Molecule *particle, int num_molecules, 
@@ -133,10 +170,20 @@ int main(int argc, char *argv[]){
     size_t size_molecule = num_molecules * sizeof(Molecule);
 
     Molecule *grid;
+    size_t heapsize = sizeof(neighbourList) * num_molecules * num_molecules * sizeof(Node_list);
+    cudaDeviceSetLimit(cudaLimitMallocHeapSize, heapsize);
 
     cudaMallocManaged(&grid, size_molecule);
-    cudaMemPrefetchAsync(grid, size_molecule, 0);
+
     fill_particles(grid, num_molecules, file);
+    
+    Node_list *last_nodes;
+    size_t size_of_nodes = num_molecules * sizeof(Node_list);
+    cudaMallocManaged(&last_nodes, size_of_nodes);
+
+    neighbourList* neighbour_list = initializeArrayOfLists(num_molecules);
+    size_t size_neighbour_list = sizeof(neighbour_list);
+    cudaMallocManaged(&neighbour_list, size_neighbour_list);
 
     int NUM_THREAD = 512;
     int NUM_BLOCK = (num_molecules + NUM_THREAD - 1) / NUM_THREAD;
@@ -145,9 +192,13 @@ int main(int argc, char *argv[]){
         
         // most stuff should be done here
         integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, time_step, 
-                                                          sigma, eps, box_size);
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, 
-                                                    sigma, eps, box_size);
+                                                         sigma, eps, box_size);
+        if (i % 10 == 0){ 
+            generate_neighbour_list<<<NUM_BLOCK, NUM_THREAD>>>(grid, neighbour_list, num_molecules, 
+                                                               sigma, box_size);
+        }
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, neighbour_list, 
+                                                   sigma, eps, box_size);
         integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(grid, num_molecules, time_step, sigma, eps);
 
         if (i % 10 == 0){
@@ -156,10 +207,11 @@ int main(int argc, char *argv[]){
             writeVTK(i, num_molecules, grid);
         }
     }
+
     auto end = std::chrono::steady_clock::now();
     auto time = std::chrono::duration_cast<std::chrono::seconds>(end - start); // don't know if it's correct
 
     std::cout << "Iteration took " << time.count() << " seconds\n";
-
+    freeArrayOfLists<<<NUM_BLOCK, NUM_THREAD>>>(neighbour_list, num_molecules);
     cudaFree(grid);
 }

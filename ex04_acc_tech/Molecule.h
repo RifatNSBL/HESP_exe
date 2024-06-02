@@ -6,5 +6,8 @@ struct Molecule
     double x, y, z;
     double xv, yv, zv;
     double xa, ya, za;
+    int unique;
+    int cell_id;
 };
+
 #endif
