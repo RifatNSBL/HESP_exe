@@ -7,10 +7,10 @@ OUTPUT_DIR = visualization
 # all
 
 TIME_STEP    = 0.003
-NUM_STEPS = 2500
+NUM_STEPS = 10
 SIGMA   = 1
 EPSILON = 2
-BOX_SIZE = 50
+BOX_SIZE = 10	
 CUTOFF_RAD = 2.5
 INPUT_FILE = points.txt
 

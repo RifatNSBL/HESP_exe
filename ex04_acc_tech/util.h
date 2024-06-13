@@ -19,7 +19,7 @@ void get_values(std::vector<double> &values, std::string line){
 }
 
 
-void fill_particles(Molecule *grid, size_t num_molecules, std::ifstream &file){
+void fill_particles(Molecule *grid, size_t num_molecules, double cell_length, int cells_per_side, std::ifstream &file){
 
     for(auto i = 0; i < num_molecules; i++){
         if(file.good()){
@@ -38,6 +38,11 @@ void fill_particles(Molecule *grid, size_t num_molecules, std::ifstream &file){
             grid[i].xa = values[7];
             grid[i].ya = values[8];
             grid[i].za = values[9];
+            int cell_x = static_cast<int>(values[1] / cell_length);
+            int cell_y = static_cast<int>(values[2] / cell_length);
+            int cell_z = static_cast<int>(values[3] / cell_length);
+            int new_cell_id = cell_x * cells_per_side * cells_per_side + cell_y * cells_per_side + cell_z;
+            grid[i].cell_id = new_cell_id;
         }
         else{
             std::cout << "Error: file has reached the end\n";

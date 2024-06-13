@@ -2,103 +2,80 @@
 #define GRID_H
 
 #include <vector>
-#include <cmath>
-#include <iostream>
-#include <cuda_runtime.h>
 
 struct Grid
 {
     size_t box_size;
     double cell_length;
     int cells_per_side;
-    size_t grid_size;
-    std::vector<std::vector<int>> grid;
-    int* d_grid;
-    int* d_cell_start;
-    int* d_cell_end;
+    int* cells;
+    int* particle;
+    int* cells_h;
+    int* particles_h;
+    size_t number_of_cells;
+    int number_of_particles;
 
-    Grid(size_t box_size, double sigma)
-        : box_size(box_size), cell_length(2.5 * sigma), d_grid(nullptr), d_cell_start(nullptr), d_cell_end(nullptr) {
-        cells_per_side = static_cast<int>(box_size / cell_length);
-        grid_size = cells_per_side * cells_per_side * cells_per_side;
-        grid.resize(grid_size);
+    Grid(size_t box_size, double sigma, int number_of_particles)
+        : box_size(box_size), cell_length(2.5 * sigma) { // *2.5
+        this->cells_per_side = static_cast<int>(box_size / cell_length);
+        this->number_of_cells = cells_per_side * cells_per_side * cells_per_side;
+        this->number_of_particles = number_of_particles;
     }
 
-    ~Grid() {
-        if (d_grid) cudaFree(d_grid);
-        if (d_cell_start) cudaFree(d_cell_start);
-        if (d_cell_end) cudaFree(d_cell_end);
+    void allocateDeviceMemory() { 
+        // cudaMallocManaged(&this->cells, this->number_of_cells * sizeof(int));
+        // for(int i = 0; i < this->number_of_cells; i++)
+        //     this->cells[i] = -1;
+        // cudaMallocManaged(&this->particles, this->number_of_particles * sizeof(int));
+        // for(int i = 0; i < this->number_of_particles; i++)
+        //     this->particles[i] = i;
+        cudaMalloc(&this->cells, this->number_of_cells * sizeof(int));
+        cudaMemcpy(this->cells, this->cells_h, this->number_of_cells * sizeof(int), cudaMemcpyHostToDevice);
+
+        cudaMalloc(&this->particle, this->number_of_particles * sizeof(int));
+        cudaMemcpy(this->particle, this->particles_h, this->number_of_particles * sizeof(int), cudaMemcpyHostToDevice);
+
     }
 
-    int getCellIndex(int x, int y, int z) const {
-        return x * cells_per_side * cells_per_side + y * cells_per_side + z;
-    }
+    void construct_first_iteration(Molecule* particles){
+        cudaMallocHost(&this->cells_h, this->number_of_cells * sizeof(int));
+        cudaMallocHost(&this->particles_h, this->number_of_particles * sizeof(int));
 
-    void addParticle(double px, double py, double pz, int particle_index, Molecule* particles) {
-        int cell_x = static_cast<int>(px / cell_length);
-        int cell_y = static_cast<int>(py / cell_length);
-        int cell_z = static_cast<int>(pz / cell_length);
-        int cell_index = getCellIndex(cell_x, cell_y, cell_z);
+        for(int i = 0; i < this->number_of_particles; i++)
+            this->particles_h[i] = i;
+        for(int i = 0; i < this->number_of_cells; i++)
+            this->cells_h[i] = -1;
 
-        particles[particle_index].cell_id = cell_index; // Assign cell_id to the particle
-        grid[cell_index].push_back(particle_index);
-    }
+        for(int i = 0; i < this->number_of_particles; i++){
 
-    const std::vector<int>& getParticlesInCell(int cell_index) const {
-        return grid[cell_index];
-    }
-
-    void printGridInfo() const {
-        std::cout << "Grid dimensions: " << cells_per_side << " x " << cells_per_side << " x " << cells_per_side << "\n";
-        std::cout << "Total cells: " << grid_size << "\n";
-    }
-
-    void printGridContents( Molecule* particles) {
-        for (int x = 0; x < cells_per_side; ++x) {
-            for (int y = 0; y < cells_per_side; ++y) {
-                for (int z = 0; z < cells_per_side; ++z) {
-                    int cell_index = getCellIndex(x, y, z);
-                    std::vector<int>& cell_particles = grid[cell_index];
-                    std::cout << "Cell (" << x << ", " << y << ", " << z << "): ";
-                    for (int particle_index : cell_particles) {
-                        particles[particle_index].cell_id = cell_index;
-                        std::cout << particles[particle_index].unique << " " << particles[particle_index].cell_id << " ";
-                    
-                    }
-                    std::cout << "\n";
-                }
+            if (this->cells_h[particles[i].cell_id] == -1){
+                this->particles_h[i] = -1;
+                this->cells_h[particles[i].cell_id] = i;
             }
+
+            else{
+                int value_in_cell = this->cells_h[particles[i].cell_id];
+                this->cells_h[particles[i].cell_id] = i;
+                this->particles_h[i] = value_in_cell;
+            }
+
         }
+        printf("Filling particles finished\n");
+        for(int i = 0; i < this->number_of_cells; i++)
+            printf("%d ", this->cells_h[i]);
+        printf("\n\n\n");
+        for(int i = 0; i < this->number_of_particles; i++)
+            printf("%d ", this->particles_h[i]);
+        printf("\n\n\n");
     }
 
-    void allocateDeviceMemory() {
-        size_t total_elements = 0;
-        for (const auto& cell : grid) {
-            total_elements += cell.size();
-        }
-        
-        cudaMalloc(&d_grid, total_elements * sizeof(int));
-        cudaMalloc(&d_cell_start, grid_size * sizeof(int));
-        cudaMalloc(&d_cell_end, grid_size * sizeof(int));
+    ~Grid(){
+        cudaFreeHost(cells_h);
+        cudaFreeHost(particle);
+        cudaFree(cells);
+        cudaFree(particle);
     }
 
-    void copyToDevice() {
-        std::vector<int> h_grid;
-        std::vector<int> h_cell_start(grid_size, 0);
-        std::vector<int> h_cell_end(grid_size, 0);
-        
-        int offset = 0;
-        for (size_t i = 0; i < grid.size(); ++i) {
-            h_cell_start[i] = offset;
-            h_grid.insert(h_grid.end(), grid[i].begin(), grid[i].end());
-            offset += grid[i].size();
-            h_cell_end[i] = offset;
-        }
-
-        cudaMemcpy(d_grid, h_grid.data(), h_grid.size() * sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_cell_start, h_cell_start.data(), grid_size * sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_cell_end, h_cell_end.data(), grid_size * sizeof(int), cudaMemcpyHostToDevice);
-    }
 };
 
 #endif
