@@ -36,15 +36,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     
-    // if(index == 0){
-    //     for(int i = 0; i < cells_per_side * cells_per_side * cells_per_side; i++)
-    //         printf("%d ", cells_list[i]);
-
-    //     printf("\n\n\n");
-    //     for(int i = 0; i < num_particles; i++)
-    //         printf("%d ", particle_list[i]);
-    // }
-    
     
     if (index < num_particles) {
         Molecule _particle = particles[index];
@@ -59,45 +50,24 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
         int cell_x = static_cast<int>(_particle.x / cutoff_dist);
         int cell_y = static_cast<int>(_particle.y / cutoff_dist);
         int cell_z = static_cast<int>(_particle.z / cutoff_dist);
+        
+        //Iterate over the 3x3x3 grid around the current cell
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dz = -1; dz <= 1; ++dz) {
+                    int neighbor_cell_x = (cell_x + dx + cells_per_side) % cells_per_side;
+                    int neighbor_cell_y = (cell_y + dy + cells_per_side) % cells_per_side;
+                    int neighbor_cell_z = (cell_z + dz + cells_per_side) % cells_per_side;
 
-        // Iterate over the 3x3x3 grid around the current cell
-        // for (int dx = -1; dx <= 1; ++dx) {
-        //     for (int dy = -1; dy <= 1; ++dy) {
-        //         for (int dz = -1; dz <= 1; ++dz) {
-                    // int neighbor_cell_x = (cell_x + dx + cells_per_side) % cells_per_side;
-                    // int neighbor_cell_y = (cell_y + dy + cells_per_side) % cells_per_side;
-                    // int neighbor_cell_z = (cell_z + dz + cells_per_side) % cells_per_side;
-
-                    // int neighbor_cell_index = neighbor_cell_x * cells_per_side * cells_per_side
-                    //                           + neighbor_cell_y * cells_per_side
-                    //                           + neighbor_cell_z;
-                    int neighbor_cell_index = _particle.cell_id;
-                    //if(index == 0) printf("%d ", neighbor_cell_index);
+                    int neighbor_cell_index = neighbor_cell_x * cells_per_side * cells_per_side
+                                              + neighbor_cell_y * cells_per_side
+                                              + neighbor_cell_z;
+                                              
                     int first_particle = cells_list[neighbor_cell_index];
-                    //if (first_particle == -1) continue;
-                    Molecule _particle_i = particles[first_particle];
+                    if (first_particle == -1) continue;
+                    if (first_particle != index){
+                        Molecule _particle_i = particles[first_particle];
 
-                    double x_proj = min_dist(_particle.x, _particle_i.x, box_size);
-                    double y_proj = min_dist(_particle.y, _particle_i.y, box_size);
-                    double z_proj = min_dist(_particle.z, _particle_i.z, box_size);
-
-                    double dist_sqr = x_proj * x_proj + y_proj * y_proj + z_proj * z_proj;
-                    if (dist_sqr < cutoff_sqr){
-
-                        double factor_sqr = sigma_sqr / dist_sqr;
-                        double factor_hex = factor_sqr * factor_sqr * factor_sqr;
-
-                        double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
-
-                        _force_i.x += res * x_proj;
-                        _force_i.y += res * y_proj;
-                        _force_i.z += res * z_proj;
-                    }
-                    int sliding_index = particle_list[first_particle];
-                    while (sliding_index != -1) {
-                        //int neighbor_index = grid[i];
-                        if (sliding_index == index) continue;
-                        Molecule _particle_i = particles[sliding_index];
                         double x_proj = min_dist(_particle.x, _particle_i.x, box_size);
                         double y_proj = min_dist(_particle.y, _particle_i.y, box_size);
                         double z_proj = min_dist(_particle.z, _particle_i.z, box_size);
@@ -113,16 +83,39 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                             _force_i.x += res * x_proj;
                             _force_i.y += res * y_proj;
                             _force_i.z += res * z_proj;
-
                         }
-                        sliding_index = particle_list[sliding_index];
-
                     }
-                    printf("finished force loop for %d %d\n", index, neighbor_cell_index);
-        //         }
-        //     }
-        // }
-        //printf("calculated force for %d\n", index);
+                    int sliding_index = particle_list[first_particle];
+                    while (sliding_index != -1) {
+                        //int neighbor_index = grid[i];
+                        if (sliding_index == index) sliding_index = particle_list[sliding_index];
+                        else {
+                            Molecule _particle_i = particles[sliding_index];
+                            double x_proj = min_dist(_particle.x, _particle_i.x, box_size);
+                            double y_proj = min_dist(_particle.y, _particle_i.y, box_size);
+                            double z_proj = min_dist(_particle.z, _particle_i.z, box_size);
+
+                            double dist_sqr = x_proj * x_proj + y_proj * y_proj + z_proj * z_proj;
+                            if (dist_sqr < cutoff_sqr){
+
+                                double factor_sqr = sigma_sqr / dist_sqr;
+                                double factor_hex = factor_sqr * factor_sqr * factor_sqr;
+
+                                double res = 24 * eps * factor_hex * (2 * factor_hex - 1) / dist_sqr;
+
+                                _force_i.x += res * x_proj;
+                                _force_i.y += res * y_proj;
+                                _force_i.z += res * z_proj;
+
+                            }
+                            sliding_index = particle_list[sliding_index];
+                        }
+                    }
+                    //printf("finished force loop for %d %d\n", index, neighbor_cell_index);
+                }
+            }
+        }
+        // if (index == 64) printf("calculated force for %d\n", index);
         update_acc(particles[index], _force_i); // a(t + 1/2 dt)
     }
 }
@@ -173,87 +166,27 @@ __global__ void update_cells(Molecule *particles, int num_particles,int cells_pe
 
         particle_list[index] = atomicExch(&cells_list[new_cell_id], index);
         _particle.cell_id = new_cell_id;
-
-        /*
-        Should it be done in another kernel???? -> yes, all particles first update positions and then assinged new cells
-        every particle has member cell_id -> shows which cell it belongs to
-        logic: if particle didn't change cell_id -> don't do anything;
-
-        if changed:
-        1. if particle in particle_list[index] == -1 => that is the end of list for previous cell -> go through old cell and
-        make previous particle a tail of list;
-
-        2. If particle in particle_list[index] != -1 => the particle is in the middle/beginning of the list
-            2.1 If cell[cell_id] == index -> particle is the head of list. get value at particle[index] (which is index of next particle
-        in this cell list) and make it the head of cell.
-
-            2.2 If cell[cell_id] != index -> particle is in the middle of the list. Find which particle was before current particle and
-        assign particle[sliding_index] = particle[index] (sliding index if index that is going through particle_list).
-
-        end: Current particle should be added to the beginning of the new cell;
         
-
-        // if (_particle.cell_id == new_cell_id) return;
-
-        // int prev_index = cells_list[_particle.cell_id]; // head of the old list
-        // int sliding_index = particle_list[prev_index];
-        // bool moved_to_particle_list = false;
-        // while (sliding_index != index && prev_index != index){
-        //     if (prev_index == -1 || sliding_index == -1) printf("Infinte loop");
-        //     prev_index = sliding_index;
-        //     moved_to_particle_list = true;
-        //     sliding_index = particle_list[sliding_index];
-        // }
-
-        // printf("loop for index %d is finished\n", index);
-        // int pointer_to_next_old_list;
-
-        // if (sliding_index == index) pointer_to_next_old_list = particle_list[sliding_index];
-        // else                        pointer_to_next_old_list = particle_list[prev_index];
-
-        // if (pointer_to_next_old_list != -1) {
-        //     atomicExch(&particle_list[prev_index], particle_list[sliding_index]); // old_list is now updated
-        // }
-        // else {
-        //     atomicExch(&cells_list[_particle.cell_id], particle_list[prev_index]); // old_list is now updated
-        // }
-        */
-
-        // if (_particle.cell_id != new_cell_id){
-        //     int* prev_pointer = &cells_list[_particle.cell_id]; // head of the old list
-        //     int* sliding_pointer = &particle_list[*prev_pointer];
-        //     if(*prev_pointer != index){
-        //         while (*sliding_pointer != index){
-        //             prev_pointer, &sliding_pointer;
-        //             sliding_pointer = &particle_list[*sliding_pointer];
-        //         }
-        //         prev_pointer = sliding_pointer;
-        //         sliding_pointer = &particle_list[*sliding_pointer];
-        //     }
-        printf("loop for index %d is finished\n", index);
-        //     atomicExch(prev_pointer, *sliding_pointer);
-            
-        // int* pointer_to_next_old_list;
-
-        // if (*sliding_index == index) pointer_to_next_old_list = &particle_list[*sliding_index];
-        // else                        pointer_to_next_old_list = &particle_list[*prev_index];
-
-        // if (*pointer_to_next_old_list != -1) {
-        //     atomicExch(sliding_index, *pointer_to_next_old_list); // old_list is now updated
-        // }
-        // else {
-        //     atomicExch(prev_index, *pointer_to_next_old_list); // old_list is now updated
-        // }
-
-
-        //     atomicExch(&particle_list[index], atomicExch(&cells_list[new_cell_id], index));
-
-        
-        // }
     }
-    
-
 }
+
+__global__ void show_list(int cells_per_side, int* particle_list, int* cells_list, size_t num_particles, int iter_num){
+    printf("ITER NUM %d\n\n\n", iter_num);
+    int cell_triple = cells_per_side * cells_per_side * cells_per_side;
+    int min_ones = 0;
+    for(int i = 0; i < cell_triple; i++){
+        printf("%d ", cells_list[i]);
+        if (cells_list[i] == -1) min_ones +=1;
+    }
+    printf("TOTAL NUMBER OF CELLS %d\n\n\n", cell_triple);
+    for(int i = 0; i  < num_particles; i++){
+        printf("%d ", particle_list[i]);
+        if (particle_list[i] == -1) min_ones +=1;
+    }
+    printf("\n\nNUMBER OF -1's %d\n", min_ones);
+}
+
+
 
 __global__ void regenerate_lists(int* cells_list, size_t number_of_cells){
     int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -276,6 +209,11 @@ __global__ void integration_step_end(Molecule *particle, int num_particles,
 
         particle[index] = _particle;
     }
+}
+
+__global__ void make_me_updated(){
+    printf("Cells updated\n");
+
 }
 
 int main(int argc, char *argv[]){
@@ -308,6 +246,9 @@ int main(int argc, char *argv[]){
     // Initialize grid
     Grid grid(box_size, sigma, num_particles);
     // Allocate device memory and copy grid data to device
+    // size_t heapsize = sizeof(Molecule) * num_particles + sizeof(grid.cells) * grid.number_of_cells
+    //                 + sizeof(grid.particle) * num_particles + sizeof(double) * num_particles;
+    // cudaDeviceSetLimit(cudaLimitMallocHeapSize, heapsize);
 
     cudaMallocManaged(&particles, size_molecule);
     fill_particles(particles, num_particles, cell_length, grid.cells_per_side, file);
@@ -323,23 +264,24 @@ int main(int argc, char *argv[]){
         auto start = std::chrono::steady_clock::now();
         // most stuff should be done here
         integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size);
-        regenerate_lists<<<NUM_BLOCK, NUM_THREAD>>>(grid.cells, grid.number_of_cells);
+        regenerate_lists<<<1, grid.number_of_cells>>>(grid.cells, grid.number_of_cells);
 
         update_cells<<<NUM_BLOCK, NUM_THREAD>>>(particles,num_particles, grid.cells_per_side,
-                                               cell_length,grid.particle,grid.cells);
-
+                                               grid.cell_length,grid.particle,grid.cells);
+        //make_me_updated<<<1, 1>>>();
+        //if (i % 50 == 0) show_list<<<1, 1>>>(grid.cells_per_side, grid.particle, grid.cells, num_particles, i);
         calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, sigma, eps, box_size, cutoff_dist,
-                                                    grid.cells_per_side, grid.particle, grid.cells);
-
+                                                   grid.cells_per_side, grid.particle, grid.cells);
+        //cudaDeviceSynchronize();
         integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, sigma, eps);
 
         if (i % 10 == 0){
             syncErr = cudaGetLastError();
             asyncErr = cudaDeviceSynchronize();
             auto end = std::chrono::steady_clock::now();
-            auto time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+            auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-            std::cout << "Iteration took " << time.count() << " microseconds\n";
+            std::cout << "Iteration took " << time.count() << " milliseconds\n";
             writeVTK(i, num_particles, particles);
         }
     }
