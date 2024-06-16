@@ -63,7 +63,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                                               + neighbor_cell_y * cells_per_side
                                               + neighbor_cell_z;
                                               
-                    if (index == 3000) printf("started force loop for %d %d\n", index, neighbor_cell_index); 
                     int first_particle = cells_list[neighbor_cell_index];
                     if (first_particle != -1 && first_particle != index){
                         Molecule _particle_i = particles[first_particle];
@@ -91,7 +90,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                         if (sliding_index == index) sliding_index = particle_list[sliding_index];
                         else {
                             Molecule _particle_i = particles[sliding_index];
-                            if (index == 3000) printf("%d ", sliding_index); 
                             double x_proj = min_dist(_particle.x, _particle_i.x, box_size);
                             double y_proj = min_dist(_particle.y, _particle_i.y, box_size);
                             double z_proj = min_dist(_particle.z, _particle_i.z, box_size);
@@ -115,7 +113,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                 }
             }
         }
-        // if (index == 64) printf("calculated force for %d\n", index);
         update_acc(particles[index], _force_i); // a(t + 1/2 dt)
     }
 }
@@ -216,79 +213,78 @@ __global__ void make_me_updated(){
 
 }
 
-int main(int argc, char *argv[]){
+int main(int argc, char *argv[]) {
+    // Parse command line arguments
+    if (argc < 8) {
+        std::cerr << "Usage: " << argv[0] << " <time_step> <num_steps> <sigma> <eps> <particle_datafile> <cutoff_dist> <box_size>" << std::endl;
+        return -1;
+    }
 
     double time_step = atof(argv[1]);
     int num_steps = atoi(argv[2]);
-    double sigma = atof(argv[3]); // stable distance = abs_dist * pow(0.5, 1/6)
+    double sigma = atof(argv[3]);
     double eps = atof(argv[4]);
-    std::string patricle_datafile = argv[5];
+    std::string particle_datafile = argv[5];
     double cutoff_dist = atof(argv[6]);
     size_t box_size = atoi(argv[7]);
     double cell_length = 2.5 * sigma;
 
     size_t num_particles = 0;
 
-
-    std::ifstream file;
-    file.open(patricle_datafile);
-
-    if (file.is_open()){
-        std::string line;
-        std::getline(file, line);
-        num_particles = std::stoi(line);
+    std::ifstream file(particle_datafile);
+    if (!file.is_open()) {
+        std::cerr << "Error: Unable to open file " << particle_datafile << std::endl;
+        return -1;
     }
+
+    std::string line;
+    std::getline(file, line);
+    num_particles = std::stoi(line);
 
     size_t size_molecule = num_particles * sizeof(Molecule);
 
     Molecule *particles;
-
-    // Initialize grid
-    Grid grid(box_size, sigma, num_particles);
-
     cudaMallocManaged(&particles, size_molecule);
-    fill_particles(particles, num_particles, cell_length, grid.cells_per_side, file);
-    //grid.construct_first_iteration(particles);
+    if (particles == nullptr) {
+        std::cerr << "Failed to allocate managed memory for particles!" << std::endl;
+        return -1;
+    }
+
+    fill_particles(particles, num_particles, cell_length, box_size / cell_length, file);
+
+    Grid grid(box_size, sigma, num_particles);
+    grid.construct_first_iteration(particles);
     grid.allocateDeviceMemory();
 
-    int NUM_THREAD = 512;
+    int NUM_THREAD = 256;
     int NUM_BLOCK = (num_particles + NUM_THREAD - 1) / NUM_THREAD;
 
     auto start_global = std::chrono::steady_clock::now();
-    cudaError_t syncErr, asyncErr;
-    for(int i = 0; i < num_steps; i++){
+
+    for (int i = 0; i < num_steps; i++) {
         auto start = std::chrono::steady_clock::now();
-        // most stuff should be done here
+
         integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size);
-        regenerate_lists<<<1, grid.number_of_cells>>>(grid.cells, grid.number_of_cells);
-        if (i == 0) show_list<<<1, 1>>>(grid.cells_per_side, grid.particle, grid.cells, num_particles, i);
-        update_cells<<<NUM_BLOCK, NUM_THREAD>>>(particles,num_particles, grid.cells_per_side,
-                                               grid.cell_length,grid.particle,grid.cells);
-        //make_me_updated<<<1, 1>>>();
-        if (i == 0) show_list<<<1, 1>>>(grid.cells_per_side, grid.particle, grid.cells, num_particles, i);
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, sigma, eps, box_size, cutoff_dist,
-                                                   grid.cells_per_side, grid.particle, grid.cells);
-        //cudaDeviceSynchronize();
+
+        regenerate_lists<<<NUM_BLOCK, NUM_THREAD>>>(grid.cells, grid.number_of_cells);
+
+        update_cells<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, grid.cells_per_side, grid.cell_length, grid.particle, grid.cells);
+
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, sigma, eps, box_size, cutoff_dist, grid.cells_per_side, grid.particle, grid.cells);
+
         integration_step_end<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, sigma, eps);
 
-        if (i % 10 == 0){
-            syncErr = cudaGetLastError();
-            asyncErr = cudaDeviceSynchronize();
+        if (i % 10 == 0) {
             auto end = std::chrono::steady_clock::now();
             auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
             std::cout << "Iteration took " << time.count() << " milliseconds\n";
             writeVTK(i, num_particles, particles);
         }
     }
+
     auto end_global = std::chrono::steady_clock::now();
     auto time_global = std::chrono::duration_cast<std::chrono::seconds>(end_global - start_global);
-
     std::cout << "Total iteration time " << time_global.count() << " seconds\n";
 
-    if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
-    if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
-
     cudaFree(particles);
-
 }
