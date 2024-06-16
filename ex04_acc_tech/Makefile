@@ -10,7 +10,7 @@ TIME_STEP    = 0.003
 NUM_STEPS = 5000
 SIGMA   = 1
 EPSILON = 2
-BOX_SIZE = 25	
+BOX_SIZE = 60
 CUTOFF_RAD = 2.5
 INPUT_FILE = points.txt
 
@@ -30,7 +30,7 @@ mk-target-dir:
 # build rules
 
 
-$(BUILD_DIR)/$(TEST_CASE): $(TEST_CASE).cu Force.h Molecule.h util.h neighbourList.cuh
+$(BUILD_DIR)/$(TEST_CASE): $(TEST_CASE).cu Force.h Molecule.h util.h Grid.h
 	rm -r $(OUTPUT_DIR) && mkdir $(OUTPUT_DIR)
 	cp $(INPUT_FILE) $(BUILD_DIR)
 	g++ -O3 createfile.cpp -o do_file
