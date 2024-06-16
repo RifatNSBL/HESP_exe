@@ -63,9 +63,9 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                                               + neighbor_cell_y * cells_per_side
                                               + neighbor_cell_z;
                                               
+                    if (index == 3000) printf("started force loop for %d %d\n", index, neighbor_cell_index); 
                     int first_particle = cells_list[neighbor_cell_index];
-                    if (first_particle == -1) continue;
-                    if (first_particle != index){
+                    if (first_particle != -1 && first_particle != index){
                         Molecule _particle_i = particles[first_particle];
 
                         double x_proj = min_dist(_particle.x, _particle_i.x, box_size);
@@ -91,6 +91,7 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                         if (sliding_index == index) sliding_index = particle_list[sliding_index];
                         else {
                             Molecule _particle_i = particles[sliding_index];
+                            if (index == 3000) printf("%d ", sliding_index); 
                             double x_proj = min_dist(_particle.x, _particle_i.x, box_size);
                             double y_proj = min_dist(_particle.y, _particle_i.y, box_size);
                             double z_proj = min_dist(_particle.z, _particle_i.z, box_size);
@@ -111,7 +112,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
                             sliding_index = particle_list[sliding_index];
                         }
                     }
-                    //printf("finished force loop for %d %d\n", index, neighbor_cell_index);
                 }
             }
         }
@@ -245,10 +245,6 @@ int main(int argc, char *argv[]){
 
     // Initialize grid
     Grid grid(box_size, sigma, num_particles);
-    // Allocate device memory and copy grid data to device
-    // size_t heapsize = sizeof(Molecule) * num_particles + sizeof(grid.cells) * grid.number_of_cells
-    //                 + sizeof(grid.particle) * num_particles + sizeof(double) * num_particles;
-    // cudaDeviceSetLimit(cudaLimitMallocHeapSize, heapsize);
 
     cudaMallocManaged(&particles, size_molecule);
     fill_particles(particles, num_particles, cell_length, grid.cells_per_side, file);
@@ -265,11 +261,11 @@ int main(int argc, char *argv[]){
         // most stuff should be done here
         integration_step_begin<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size);
         regenerate_lists<<<1, grid.number_of_cells>>>(grid.cells, grid.number_of_cells);
-
+        if (i == 0) show_list<<<1, 1>>>(grid.cells_per_side, grid.particle, grid.cells, num_particles, i);
         update_cells<<<NUM_BLOCK, NUM_THREAD>>>(particles,num_particles, grid.cells_per_side,
                                                grid.cell_length,grid.particle,grid.cells);
         //make_me_updated<<<1, 1>>>();
-        //if (i % 50 == 0) show_list<<<1, 1>>>(grid.cells_per_side, grid.particle, grid.cells, num_particles, i);
+        if (i == 0) show_list<<<1, 1>>>(grid.cells_per_side, grid.particle, grid.cells, num_particles, i);
         calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, sigma, eps, box_size, cutoff_dist,
                                                    grid.cells_per_side, grid.particle, grid.cells);
         //cudaDeviceSynchronize();
