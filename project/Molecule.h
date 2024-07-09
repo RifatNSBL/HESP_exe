@@ -9,7 +9,12 @@ struct Molecule
     double xa, ya, za;
     double diameter;  // Add size attribute
     int cell_id;
-    Quaternion orientation;
+
+    // Quaternion orientation;
+    
+    double theta; 
+    double omega;
+    double alpha;
     double inertia;
 };
 #endif

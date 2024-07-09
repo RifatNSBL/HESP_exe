@@ -20,7 +20,7 @@ __device__ void update_acc(Molecule &particle, Force &force){
 }
 
 __global__ void calculate_forces(Molecule *particles, size_t num_particles,
-                                 double k, double b, size_t box_size){
+                                 double k, double b, double mu, size_t box_size){
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles) {
@@ -28,8 +28,8 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
 
         Force _force_i;
         _force_i.x = 0;
-        _force_i.y = 0;
-        _force_i.z = -6.0;
+        _force_i.y = -9.81;
+        _force_i.z = 0;
 
         for(int i = 0; i < num_particles; i++) {
             if (i == index) continue; 
@@ -41,9 +41,9 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
             double dist_sqr = x_proj * x_proj + y_proj * y_proj + z_proj * z_proj;
             double dist = sqrt(dist_sqr);
 
-            double combined_diameter = (_particle.diameter + _particle_i.diameter) / 1.4;
-            if (dist < combined_diameter) { // Check if particles are overlapping
-                double overlap = combined_diameter - dist;
+            double combined_radius = (_particle.diameter + _particle_i.diameter) / 2;
+            if (dist < combined_radius) { // Check if particles are overlapping
+                double overlap = combined_radius - dist;
 
                 double spring_force_magnitude = k * overlap;
                 double spring_force_x = spring_force_magnitude * x_proj;
@@ -77,7 +77,7 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
     }
 }
 
-__global__ void position_update(Molecule *particles, int num_particles, double time_step, size_t box_size, double k, double b) { // spring constant and damping coefficient
+__global__ void position_update(Molecule *particles, int num_particles, double time_step, size_t box_size, double k, double b, double mu) { // spring constant and damping coefficient
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles) {
@@ -90,6 +90,15 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
         _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr) / 2;
         _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr) / 2;
 
+        // Update particle angular_position
+        _particle.theta = _particle.omega * time_step + (_particle.alpha* time_step_sqr) / 2;
+
+        //Check for angle wrap
+        _particle.theta = fmod(_particle.theta, 360.0);  // Wrap-around to [0, 360)
+        if (_particle.theta < 0) {
+        _particle.theta += 360.0;  // Adjust negative values to be within [0, 360)
+        }
+
         // Wall collisions
         // X direction
         if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
@@ -100,8 +109,16 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             double total_force = spring_force - damping_force;
             double acceleration = total_force / _particle.mass; 
 
+            //Angular Components
+            double frictional_force = _particle.mass * 9.81 * mu;
+            double torque = frictional_force * particle_diameter/2 * (_particle.xv >= 0 ? -1 : 1);  // Negative for positive y-velocity, positive for negative y-velocity
+            double alpha = torque /  _particle.inertia;
+
             // Update velocity due to collision
             _particle.xv += (_particle.x < particle_diameter ? acceleration : -acceleration) * time_step;
+
+             // Update angular velocity due to collision
+            _particle.omega+ = _particle.alpha * time_step;
             
             // Reflect position to simulate bounce
             if (_particle.x < 0) {
@@ -122,8 +139,16 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             double total_force = spring_force - damping_force;
             double acceleration = total_force / _particle.mass;
 
+             //Angular Components
+            double frictional_force = _particle.mass * 9.81 * mu;
+            double torque = frictional_force * particle_diameter/2 * (_particle.yv >= 0 ? -1 : 1);  // Negative for positive y-velocity, positive for negative y-velocity
+            double alpha = torque /  _particle.inertia;
+
             // Update velocity due to collision
             _particle.yv += (_particle.y < particle_diameter ? acceleration : -acceleration) * time_step;
+
+             // Update angular velocity due to collision
+            _particle.omega+ = _particle.alpha * time_step;
             
              // Reflect position to simulate bounce
             if (_particle.y < 0) {
@@ -162,8 +187,6 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
     }
 }
 
-
-
 __global__ void velocity_update(Molecule *particle, int num_particles,
                                      double time_step, double sigma, double eps){
 
@@ -189,9 +212,13 @@ int main(int argc, char *argv[]) {
     int num_steps = atoi(argv[2]);
     double k = atof(argv[3]);
     double b = atof(argv[4]);
-    std::string particle_datafile = argv[5];
-    double cutoff_dist = atof(argv[6]);
-    size_t box_size = atoi(argv[7]);
+
+    //Add friction-coefficient
+    double mu = atof(argv[5]);
+
+    std::string particle_datafile = argv[6];
+    double cutoff_dist = atof(argv[7]);
+    size_t box_size = atoi(argv[8]);
     double cell_length_mulltiplier = 3.0;
 
     size_t num_particles = 0;
@@ -228,13 +255,13 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_steps; i++) {
         auto start = std::chrono::steady_clock::now();
 
-        position_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size, k, b);
+        position_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size, k, b, mu);
         syncErr = cudaGetLastError();
         asyncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
         if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, k, b, box_size);
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, k, b, mu, box_size);
         syncErr = cudaGetLastError();
         asyncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));

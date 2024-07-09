@@ -33,16 +33,13 @@ int main(int argc, char *argv[]) {
     std::ofstream file(filePath);
     double min = -1.0;
     double max = 1.0;
-    file << 216 << "\n";
+    file << 36 << "\n";
     for(auto x = 0; x < 6*cube_size; x++){
         for(auto y = 0; y < 6*cube_size; y++){
-            for(auto z = 0; z < 6*cube_size; z++){
-            
-                std::vector<double> line = {1,  3.0*static_cast<double>(x) + 3.0,  3.0*static_cast<double>(y) + 3.0, 
-                                              3.0*static_cast<double>(z) + 3.0, 0 ,-0.5*y, 0, 0, 0, 0, ball_size};
+                std::vector<double> line = {1,  3.0*static_cast<double>(x) + 3.0,  3.0*static_cast<double>(y) + 3.0, 0
+                                              , 0 ,0, 0, 0, 0, 0, ball_size, 0, 0, 0};
                 writeLineToFile(file, line);
                 
-        }
         }
     }
 

@@ -38,10 +38,15 @@ double fill_particles(Molecule *grid, size_t num_molecules, double cell_length_m
             grid[i].ya = values[8];
             grid[i].za = values[9];
             grid[i].diameter = values[10];  // Add size
-            grid[i].orientation = Quaternion(0.0, 1.0, 0.0, 0.0);
+
+            //Add angular_position, velocity, and acceleration
+            grid[i].theta = values[11]
+            grid[i].omega = values[12]
+            grid[i].alpha = values[13]
+
+           // grid[i].orientation = Quaternion(0.0, 1.0, 0.0, 0.0);
             //grid[i].orientation = Quaternion(0.0, 0.0, 90.0 * 2 * M_PI / 360);
             grid[i].inertia = 0.4 * grid[i].mass * grid[i].diameter * grid[i].diameter / 4;
-            if (values[10] > max_size) max_size = values[0];
 
         }
         else{
