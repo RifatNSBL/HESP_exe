@@ -40,9 +40,9 @@ double fill_particles(Molecule *grid, size_t num_molecules, double cell_length_m
             grid[i].diameter = values[10];  // Add size
 
             //Add angular_position, velocity, and acceleration
-            grid[i].theta = values[11]
-            grid[i].omega = values[12]
-            grid[i].alpha = values[13]
+            grid[i].theta = values[11];
+            grid[i].omega = values[12];
+            grid[i].alpha = values[13];
 
            // grid[i].orientation = Quaternion(0.0, 1.0, 0.0, 0.0);
             //grid[i].orientation = Quaternion(0.0, 0.0, 90.0 * 2 * M_PI / 360);
@@ -153,6 +153,7 @@ void writeVTK(int index, size_t num_molecules, Molecule *points) {
                    << " " << double(i) / (num_molecules + 1) + 0.000001 << " " << double(i) / (num_molecules + 1) + 0.000001 << "\n";
     }
 
+    /*{
     vtk_output << "VECTORS orientation double\n";
     // // for (size_t i = 0; i < num_molecules; i++) {
     // //     double x = sin(2 * M_PI * double(index) / 3000);
@@ -175,6 +176,9 @@ void writeVTK(int index, size_t num_molecules, Molecule *points) {
     points[1].orientation = rotate( Quaternion(90.0 * 2 * M_PI / 360, rotation), points[0].orientation );
     vtk_output << std::fixed << std::setprecision(6) << points[1].orientation.q1
         << " " << points[1].orientation.q2 << " " << points[1].orientation.q3 << "\n";
+
+    }
+    */
 
     vtk_output << "VECTORS velocity double\n";
     for (size_t i = 0; i < num_molecules; i++) {

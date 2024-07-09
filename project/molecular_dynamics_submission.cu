@@ -14,6 +14,7 @@ __device__ void update_acc(Molecule &particle, Force &force){
     _particle.xa = _force.x / _particle.mass;
     _particle.ya = _force.y / _particle.mass;
     _particle.za = _force.z / _particle.mass;
+    _particle.alpha = _force.torque / _particle.inertia;
 
     particle = _particle;
     force    = _force;
@@ -31,6 +32,9 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
         _force_i.y = -9.81;
         _force_i.z = 0;
 
+        //Rotational
+        _force_i.torque = 0.0;
+
         for(int i = 0; i < num_particles; i++) {
             if (i == index) continue; 
             Molecule _particle_i = particles[i];
@@ -45,31 +49,57 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
             if (dist < combined_radius) { // Check if particles are overlapping
                 double overlap = combined_radius - dist;
 
+                // Normalize the projection to get the normal direction
+                double normal_x = x_proj / dist;
+                double normal_y = y_proj / dist;
+                double normal_z = z_proj / dist;
+
                 double spring_force_magnitude = k * overlap;
-                double spring_force_x = spring_force_magnitude * x_proj;
-                double spring_force_y = spring_force_magnitude * y_proj;
-                double spring_force_z = spring_force_magnitude * z_proj;
+                double spring_force_x = spring_force_magnitude * normal_x;
+                double spring_force_y = spring_force_magnitude * normal_y;
+                double spring_force_z = spring_force_magnitude * normal_z;
 
                                     // Calculate damping force components
                 double relative_velocity_x = _particle.xv - _particle_i.xv;
                 double relative_velocity_y = _particle.yv - _particle_i.yv;
                 double relative_velocity_z = _particle.zv - _particle_i.zv;
-                double relative_velocity_dot_proj = (relative_velocity_x * x_proj + relative_velocity_y * y_proj + relative_velocity_z * z_proj);
+                double relative_velocity_dot_proj = (relative_velocity_x * normal_x + relative_velocity_y * normal_y + relative_velocity_z * normal_z);
 
                 double damping_force_magnitude = b * relative_velocity_dot_proj;
-                double damping_force_x = damping_force_magnitude * x_proj;
-                double damping_force_y = damping_force_magnitude * y_proj;
-                double damping_force_z = damping_force_magnitude * z_proj;
+                double damping_force_x = damping_force_magnitude * normal_x;
+                double damping_force_y = damping_force_magnitude * normal_y;
+                double damping_force_z = damping_force_magnitude * normal_z;
 
                                     // Calculate total force components
                 double total_force_x = spring_force_x - damping_force_x;
                 double total_force_y = spring_force_y - damping_force_y;
                 double total_force_z = spring_force_z - damping_force_z;
 
+                //Calculate tangential force and torque
+                double tangential_velocity_x = relative_velocity_x - relative_velocity_dot_proj * normal_x;
+                double tangential_velocity_y = relative_velocity_y - relative_velocity_dot_proj * normal_y;
+               
+                double tangential_velocity_magnitude = sqrt(tangential_velocity_x * tangential_velocity_x +
+                                                            tangential_velocity_y * tangential_velocity_y);
+
+                double tangential_force_magnitude = mu * sqrt(total_force_x * total_force_x + total_force_y * total_force_y);
+                double tangential_force_x = tangential_force_magnitude * (tangential_velocity_magnitude > 0 ? tangential_velocity_x / tangential_velocity_magnitude : 0);
+                double tangential_force_y = tangential_force_magnitude * (tangential_velocity_magnitude > 0 ? tangential_velocity_y / tangential_velocity_magnitude : 0);
+
+                // Compute the torque due to the tangential force
+                double torque = (_particle.diameter / 2) * (tangential_force_y * normal_x - tangential_force_x * normal_y);
+
+                // Update torque on particle
+                _force_i.torque += torque;
+
                                     // Update forces on particle
                 _force_i.x += total_force_x;
                 _force_i.y += total_force_y;
                 _force_i.z += total_force_z;
+
+                //Update torque on particle
+                _force_i.torque+= torque;
+
 
             }
         }
@@ -110,7 +140,7 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             double acceleration = total_force / _particle.mass; 
 
             //Angular Components
-            double frictional_force = _particle.mass * 9.81 * mu;
+            double frictional_force = total_force * mu;
             double torque = frictional_force * particle_diameter/2 * (_particle.xv >= 0 ? -1 : 1);  // Negative for positive y-velocity, positive for negative y-velocity
             double alpha = torque /  _particle.inertia;
 
@@ -118,7 +148,7 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             _particle.xv += (_particle.x < particle_diameter ? acceleration : -acceleration) * time_step;
 
              // Update angular velocity due to collision
-            _particle.omega+ = _particle.alpha * time_step;
+            _particle.omega += alpha * time_step;
             
             // Reflect position to simulate bounce
             if (_particle.x < 0) {
@@ -140,7 +170,7 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             double acceleration = total_force / _particle.mass;
 
              //Angular Components
-            double frictional_force = _particle.mass * 9.81 * mu;
+            double frictional_force = total_force * mu;
             double torque = frictional_force * particle_diameter/2 * (_particle.yv >= 0 ? -1 : 1);  // Negative for positive y-velocity, positive for negative y-velocity
             double alpha = torque /  _particle.inertia;
 
@@ -148,9 +178,9 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             _particle.yv += (_particle.y < particle_diameter ? acceleration : -acceleration) * time_step;
 
              // Update angular velocity due to collision
-            _particle.omega+ = _particle.alpha * time_step;
+            _particle.omega += alpha * time_step;
             
-             // Reflect position to simulate bounce
+            // Reflect position to simulate bounce
             if (_particle.y < 0) {
                 _particle.y = 0;
             } 
