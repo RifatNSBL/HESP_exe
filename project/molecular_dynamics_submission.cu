@@ -31,7 +31,7 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
         Force _force_i;
         _force_i.x = 0;
         _force_i.y = 0;
-        _force_i.z = 0;
+        _force_i.z = -2.0;
 
         for(int i = 0; i < num_particles; i++) {
             if (i == index) continue; 
@@ -89,9 +89,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
                 // double cube_proj_z = normalized_z_proj * normalized_z_proj * normalized_z_proj;
                 // double cude_sqrt_proj_z = sqrt(cube_proj_z);
                 _force_i.z += normal_force_abs * sqrt(normalized_x_proj * normalized_x_proj) * normalized_x_proj + tangential_force_z;
-                if(index == 0) printf("%f %f %f \n", eff_radius, normal_force_abs, factor);
-                if(index == 0) printf("%f %f %f \n", normalized_z_proj, relative_velocity_z, normal_relative_velocity_z);
-                // if(index == 0) printf("%f\n", cube_proj_z);
             }
         }
         update_acc(particles[index], _force_i); // a(t + 1/2 dt)
@@ -112,8 +109,8 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
         _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr) / 2;
         _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr) / 2;
 
-        double k = 1.0;
-        double b = 0.1;
+        double k = 50.0;
+        double b = 0.4;
         // Wall collisions
         // X direction
         if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
@@ -214,7 +211,7 @@ int main(int argc, char *argv[]) {
     std::string particle_datafile = argv[3];
     size_t box_size = atoi(argv[4]);
     double poisson_ratio = atof(argv[5]);
-    double young_modulus = atof(argv[6]) * 100;
+    double young_modulus = atof(argv[6]) * 2000;
 
     double cell_length_mulltiplier = 3.0;
 
