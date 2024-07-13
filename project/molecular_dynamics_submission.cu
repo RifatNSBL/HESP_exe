@@ -19,8 +19,8 @@ __device__ void update_acc(Molecule &particle, Force &force){
     force    = _force;
 }
 
-__global__ void calculate_forces(Molecule *particles, size_t num_particles,
-                                 double k, double b, size_t box_size){
+__global__ void calculate_forces(Molecule *particles, size_t num_particles, double time_step,
+                                 size_t box_size, double eff_young_modulus, double eff_shear_modulus){
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles) {
@@ -29,7 +29,7 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
         Force _force_i;
         _force_i.x = 0;
         _force_i.y = 0;
-        _force_i.z = -6.0;
+        _force_i.z = 0;
 
         for(int i = 0; i < num_particles; i++) {
             if (i == index) continue; 
@@ -41,35 +41,48 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
             double dist_sqr = x_proj * x_proj + y_proj * y_proj + z_proj * z_proj;
             double dist = sqrt(dist_sqr);
 
-            double combined_diameter = (_particle.diameter + _particle_i.diameter) / 1.4;
-            if (dist < combined_diameter) { // Check if particles are overlapping
-                double overlap = combined_diameter - dist;
+            double overlap_distance = (_particle.diameter + _particle_i.diameter) / 2;
+            if (dist < overlap_distance) { // Check if particles are overlapping
 
-                double spring_force_magnitude = k * overlap;
-                double spring_force_x = spring_force_magnitude * x_proj;
-                double spring_force_y = spring_force_magnitude * y_proj;
-                double spring_force_z = spring_force_magnitude * z_proj;
+                double overlap = overlap_distance - dist;
+                double sqrt_overlap = sqrt(overlap);
+                double cube_sqrt_overlap = sqrt_overlap * sqrt_overlap * sqrt_overlap;
 
-                                    // Calculate damping force components
+                double normalized_x_proj = x_proj / dist;
+                double normalized_y_proj = y_proj / dist;
+                double normalized_z_proj = z_proj / dist;
+
+                // Calculate damping force components
                 double relative_velocity_x = _particle.xv - _particle_i.xv;
                 double relative_velocity_y = _particle.yv - _particle_i.yv;
                 double relative_velocity_z = _particle.zv - _particle_i.zv;
-                double relative_velocity_dot_proj = (relative_velocity_x * x_proj + relative_velocity_y * y_proj + relative_velocity_z * z_proj);
+                
+                double normal_relative_velocity_x = relative_velocity_x * normalized_x_proj;
+                double normal_relative_velocity_y = relative_velocity_y * normalized_y_proj;
+                double normal_relative_velocity_z = relative_velocity_z * normalized_z_proj;
 
-                double damping_force_magnitude = b * relative_velocity_dot_proj;
-                double damping_force_x = damping_force_magnitude * x_proj;
-                double damping_force_y = damping_force_magnitude * y_proj;
-                double damping_force_z = damping_force_magnitude * z_proj;
+                double eff_radius = (_particle.diameter * _particle_i.diameter) / (2 * (_particle.diameter + _particle_i.diameter));
+                double sqrt_eff_radius = sqrt(eff_radius);
 
-                                    // Calculate total force components
-                double total_force_x = spring_force_x - damping_force_x;
-                double total_force_y = spring_force_y - damping_force_y;
-                double total_force_z = spring_force_z - damping_force_z;
+                double normal_force_abs = 1.333 * eff_young_modulus * sqrt_eff_radius;
+                
+                double tangential_relative_velocity_x = relative_velocity_x - normal_relative_velocity_x;
+                double tangential_relative_velocity_y = relative_velocity_y - normal_relative_velocity_y;
+                double tangential_relative_velocity_z = relative_velocity_z - normal_relative_velocity_z;
 
-                                    // Update forces on particle
-                _force_i.x += total_force_x;
-                _force_i.y += total_force_y;
-                _force_i.z += total_force_z;
+                double tangential_displacement_x = tangential_relative_velocity_x * time_step;
+                double tangential_displacement_y = tangential_relative_velocity_y * time_step;
+                double tangential_displacement_z = tangential_relative_velocity_z * time_step;
+
+                double factor = -8 * eff_shear_modulus * sqrt_eff_radius;
+                double tangential_force_x = factor * sqrt(tangential_displacement_x);
+                double tangential_force_y = factor * sqrt(tangential_displacement_y);
+                double tangential_force_z = factor * sqrt(tangential_displacement_z);
+
+                // Update forces on particle
+                _force_i.x += normal_force_abs * sqrt(normalized_x_proj * normalized_x_proj * normalized_x_proj);// + tangential_force_x;
+                _force_i.y += normal_force_abs * sqrt(normalized_y_proj * normalized_y_proj * normalized_y_proj);// + tangential_force_y;
+                _force_i.z += normal_force_abs * sqrt(normalized_z_proj * normalized_z_proj * normalized_z_proj);// + tangential_force_z;
 
             }
         }
@@ -77,7 +90,7 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles,
     }
 }
 
-__global__ void position_update(Molecule *particles, int num_particles, double time_step, size_t box_size, double k, double b) { // spring constant and damping coefficient
+__global__ void position_update(Molecule *particles, int num_particles, double time_step, size_t box_size) { // spring constant and damping coefficient
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles) {
@@ -92,70 +105,70 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
 
         // Wall collisions
         // X direction
-        if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
-            double overlap = _particle.x < particle_diameter ? particle_diameter - _particle.x : _particle.x - (box_size - particle_diameter);
-            double relative_velocity = _particle.xv;
-            double spring_force = k * overlap;
-            double damping_force = b * relative_velocity;
-            double total_force = spring_force - damping_force;
-            double acceleration = total_force / _particle.mass; 
+        // if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
+        //     double overlap = _particle.x < particle_diameter ? particle_diameter - _particle.x : _particle.x - (box_size - particle_diameter);
+        //     double relative_velocity = _particle.xv;
+        //     double spring_force = k * overlap;
+        //     double damping_force = b * relative_velocity;
+        //     double total_force = spring_force - damping_force;
+        //     double acceleration = total_force / _particle.mass; 
 
-            // Update velocity due to collision
-            _particle.xv += (_particle.x < particle_diameter ? acceleration : -acceleration) * time_step;
+        //     // Update velocity due to collision
+        //     _particle.xv += (_particle.x < particle_diameter ? acceleration : -acceleration) * time_step;
             
-            // Reflect position to simulate bounce
-            if (_particle.x < 0) {
-                _particle.x = 0;
-            } 
-            if (_particle.x > box_size)
-            {
-                _particle.x = box_size;
-            }
-        }
+        //     // Reflect position to simulate bounce
+        //     if (_particle.x < 0) {
+        //         _particle.x = 0;
+        //     } 
+        //     if (_particle.x > box_size)
+        //     {
+        //         _particle.x = box_size;
+        //     }
+        // }
 
-        // Y direction
-        if (_particle.y < particle_diameter || _particle.y > box_size - particle_diameter) {
-            double overlap = _particle.y < particle_diameter ? particle_diameter - _particle.y : _particle.y - (box_size - particle_diameter);
-            double relative_velocity = _particle.yv;
-            double spring_force = k * overlap;
-            double damping_force = b * relative_velocity;
-            double total_force = spring_force - damping_force;
-            double acceleration = total_force / _particle.mass;
+        // // Y direction
+        // if (_particle.y < particle_diameter || _particle.y > box_size - particle_diameter) {
+        //     double overlap = _particle.y < particle_diameter ? particle_diameter - _particle.y : _particle.y - (box_size - particle_diameter);
+        //     double relative_velocity = _particle.yv;
+        //     double spring_force = k * overlap;
+        //     double damping_force = b * relative_velocity;
+        //     double total_force = spring_force - damping_force;
+        //     double acceleration = total_force / _particle.mass;
 
-            // Update velocity due to collision
-            _particle.yv += (_particle.y < particle_diameter ? acceleration : -acceleration) * time_step;
+        //     // Update velocity due to collision
+        //     _particle.yv += (_particle.y < particle_diameter ? acceleration : -acceleration) * time_step;
             
-             // Reflect position to simulate bounce
-            if (_particle.y < 0) {
-                _particle.y = 0;
-            } 
-            if (_particle.y > box_size)
-            {
-                _particle.y = box_size;
-            }
-        }
+        //      // Reflect position to simulate bounce
+        //     if (_particle.y < 0) {
+        //         _particle.y = 0;
+        //     } 
+        //     if (_particle.y > box_size)
+        //     {
+        //         _particle.y = box_size;
+        //     }
+        // }
 
-        // Z direction
-        if (_particle.z < particle_diameter || _particle.z > box_size - particle_diameter) {
-            double overlap = _particle.z < particle_diameter ? particle_diameter - _particle.z : _particle.z - (box_size - particle_diameter);
-            double relative_velocity = _particle.zv;
-            double spring_force = k * overlap;
-            double damping_force = b*relative_velocity;
-            double total_force = spring_force - damping_force;
-            double acceleration = total_force / _particle.mass;
+        // // Z direction
+        // if (_particle.z < particle_diameter || _particle.z > box_size - particle_diameter) {
+        //     double overlap = _particle.z < particle_diameter ? particle_diameter - _particle.z : _particle.z - (box_size - particle_diameter);
+        //     double relative_velocity = _particle.zv;
+        //     double spring_force = k * overlap;
+        //     double damping_force = b*relative_velocity;
+        //     double total_force = spring_force - damping_force;
+        //     double acceleration = total_force / _particle.mass;
 
-            // Update velocity due to collision
-            _particle.zv += (_particle.z < particle_diameter ? acceleration : -acceleration) * time_step;
+        //     // Update velocity due to collision
+        //     _particle.zv += (_particle.z < particle_diameter ? acceleration : -acceleration) * time_step;
             
-             // Reflect position to simulate bounce
-            if (_particle.z < 0) {
-                _particle.z = 0;
-            } 
-            if (_particle.z > box_size)
-            {
-                _particle.z = box_size;
-            }
-        }
+        //      // Reflect position to simulate bounce
+        //     if (_particle.z < 0) {
+        //         _particle.z = 0;
+        //     } 
+        //     if (_particle.z > box_size)
+        //     {
+        //         _particle.z = box_size;
+        //     }
+        // }
 
         // Write updated particle back to global memory
         particles[index] = _particle;
@@ -165,7 +178,7 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
 
 
 __global__ void velocity_update(Molecule *particle, int num_particles,
-                                     double time_step, double sigma, double eps){
+                                     double time_step){
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles){
@@ -180,19 +193,22 @@ __global__ void velocity_update(Molecule *particle, int num_particles,
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 8) {
-        std::cerr << "Usage: " << argv[0] << " <time_step> <num_steps> <k> <b> <particle_datafile> <cutoff_dist> <box_size>" << std::endl;
-        return -1;
-    }
+    // if (argc < 8) {
+    //     std::cerr << "Usage: " << argv[0] << " <time_step> <num_steps> <k> <b> <particle_datafile> <cutoff_dist> <box_size>" << std::endl;
+    //     return -1;
+    // }
 
     double time_step = atof(argv[1]);
     int num_steps = atoi(argv[2]);
-    double k = atof(argv[3]);
-    double b = atof(argv[4]);
-    std::string particle_datafile = argv[5];
-    double cutoff_dist = atof(argv[6]);
-    size_t box_size = atoi(argv[7]);
+    std::string particle_datafile = argv[3];
+    size_t box_size = atoi(argv[4]);
+    double poisson_ratio = atof(argv[5]);
+    double young_modulus = atof(argv[6]);// * pow(10, 9);
+
     double cell_length_mulltiplier = 3.0;
+
+    double eff_young_modulus = young_modulus / (2 - 2 * poisson_ratio * poisson_ratio);
+    double eff_shear_modulus = young_modulus / (4 + 4 * poisson_ratio);
 
     size_t num_particles = 0;
 
@@ -226,30 +242,30 @@ int main(int argc, char *argv[]) {
     cudaError_t syncErr, asyncErr;
 
     for (int i = 0; i < num_steps; i++) {
-        auto start = std::chrono::steady_clock::now();
+        //auto start = std::chrono::steady_clock::now();
 
-        position_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size, k, b);
+        position_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size);
         syncErr = cudaGetLastError();
         asyncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
         if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
-        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, k, b, box_size);
+        calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size, eff_young_modulus, eff_shear_modulus);
         syncErr = cudaGetLastError();
         asyncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
         if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
-        velocity_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, k, b);
+        velocity_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step);
         syncErr = cudaGetLastError();
         asyncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
         if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
         if (i % 10 == 0) {
-            auto end = std::chrono::steady_clock::now();
-            auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            std::cout << "Iteration took " << time.count() << " milliseconds\n";
+            // auto end = std::chrono::steady_clock::now();
+            // auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+            // std::cout << "Iteration took " << time.count() << " milliseconds\n";
             writeVTK(i, num_particles, particles);
         }
     }

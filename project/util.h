@@ -59,7 +59,7 @@ double fill_particles(Molecule *grid, size_t num_molecules, double cell_length_m
             int flatten_cel_id = cell_x * cells_per_side * cells_per_side + cell_y * cells_per_side + cell_z;
             grid[i].cell_id = flatten_cel_id;
             // Debugging output
-            printf("Particle %d: x=%f, y=%f, z=%f, cell_id=%d\n", i, grid[i].x, grid[i].y, grid[i].z, flatten_cel_id);
+            //printf("Particle %d: x=%f, y=%f, z=%f, cell_id=%d\n", i, grid[i].x, grid[i].y, grid[i].z, flatten_cel_id);
     }
     return max_size;
 }
@@ -144,11 +144,11 @@ void writeVTK(int index, size_t num_molecules, Molecule *points) {
     }
     vtk_output << "COLOR_SCALARS color 3\n";
     for (size_t i = 0; i < num_molecules; i++) {
-        vtk_output << std::fixed << std::setprecision(6) << double(i) / (num_molecules + 1) + 0.000001
+        vtk_output << std::fixed << std::setprecision(6) << -2
                    << " " << double(i) / (num_molecules + 1) + 0.000001 << " " << double(i) / (num_molecules + 1) + 0.000001 << "\n";
     }
 
-    vtk_output << "VECTORS orientation double\n";
+    //vtk_output << "VECTORS orientation double\n";
     // // for (size_t i = 0; i < num_molecules; i++) {
     // //     double x = sin(2 * M_PI * double(index) / 3000);
     // //     double y = cos(2 * M_PI * double(index) / 3000);
@@ -162,14 +162,14 @@ void writeVTK(int index, size_t num_molecules, Molecule *points) {
     // double x = cos(alpha) * cos(polar);
     // double z = sin(polar);
     
-    vtk_output << std::fixed << std::setprecision(6) << points[0].orientation.q1
-        << " " << points[0].orientation.q2 << " " << points[0].orientation.q3 << "\n";
+    // vtk_output << std::fixed << std::setprecision(6) << points[0].orientation.q1
+    //     << " " << points[0].orientation.q2 << " " << points[0].orientation.q3 << "\n";
 
-    double rotation[3] = {0.0, 0.0, 1.0};
+    // double rotation[3] = {0.0, 0.0, 1.0};
 
-    points[1].orientation = rotate( Quaternion(90.0 * 2 * M_PI / 360, rotation), points[0].orientation );
-    vtk_output << std::fixed << std::setprecision(6) << points[1].orientation.q1
-        << " " << points[1].orientation.q2 << " " << points[1].orientation.q3 << "\n";
+    // points[1].orientation = rotate( Quaternion(90.0 * 2 * M_PI / 360, rotation), points[0].orientation ); // rotate 90 degrees around z-axis
+    // vtk_output << std::fixed << std::setprecision(6) << points[1].orientation.q1
+    //     << " " << points[1].orientation.q2 << " " << points[1].orientation.q3 << "\n";
 
     vtk_output << "VECTORS velocity double\n";
     for (size_t i = 0; i < num_molecules; i++) {

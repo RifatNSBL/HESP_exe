@@ -21,10 +21,10 @@ struct Quaternion{
     }
 
     Quaternion(double q0, double q1, double q2, double q3): // copy costructor for multiplication
-        q0(q0), q1(q1), q2(q2), q3(q3){printf("called copy constructor\n");}
+        q0(q0), q1(q1), q2(q2), q3(q3){}
 
     Quaternion(): // default quaternion
-        q0(1), q1(0), q2(0), q3(0){ printf("called default constructor\n");}
+        q0(1), q1(0), q2(0), q3(0){}
 
     bool norm_is_unit() {
         double norm = q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3;

@@ -27,16 +27,16 @@ void writeLineToFile(std::ofstream& file, const std::vector<double>& line) {
 
 int main(int argc, char *argv[]) {
     // Example usage
-    size_t cube_size = atoi(argv[1]) / 25;
+    size_t cube_size = atoi(argv[1]) / 6;
     double ball_size = atoi(argv[2]);
     std::string filePath = "points.txt";
     std::ofstream file(filePath);
     double min = -1.0;
     double max = 1.0;
-    file << 216 << "\n";
-    for(auto x = 0; x < 6*cube_size; x++){
-        for(auto y = 0; y < 6*cube_size; y++){
-            for(auto z = 0; z < 6*cube_size; z++){
+    file << pow(atoi(argv[1]) / 6, 3) << "\n";
+    for(auto x = 0; x < cube_size; x++){
+        for(auto y = 0; y < cube_size; y++){
+            for(auto z = 0; z < cube_size; z++){
             
                 std::vector<double> line = {1,  3.0*static_cast<double>(x) + 3.0,  3.0*static_cast<double>(y) + 3.0, 
                                               3.0*static_cast<double>(z) + 3.0, 0 ,-0.5*y, 0, 0, 0, 0, ball_size};
