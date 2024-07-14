@@ -1,9 +1,11 @@
 # Prerequisites
+*
 *.d
 *.png
 *.ppm
 *.vtk
 *.pdf
+*.txt
 
 # Compiled Object files
 *.slo
