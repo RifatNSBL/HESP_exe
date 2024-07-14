@@ -1,6 +1,7 @@
 #include <chrono>
 #include <iostream>
 #include <cmath>
+#include <curand_kernel.h>
 
 #include "Molecule.h"
 #include "Force.h"
@@ -32,7 +33,7 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
             Force _force_i;
             _force_i.x = 0;
             _force_i.y = 0;
-            _force_i.z = -2.0;
+            _force_i.z = -4.5;
 
             for(int i = 0; i < num_particles; i++) {
                 Molecule _particle_i = particles[i];
@@ -86,10 +87,12 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
                     double tangential_displacement_y = tangential_relative_velocity_y * time_step;
                     double tangential_displacement_z = tangential_relative_velocity_z * time_step;
 
-                    double factor = -8 * eff_shear_modulus * sqrt_eff_radius;
-                    double tangential_force_x = factor * sqrt(abs(tangential_displacement_x)) * sign(tangential_displacement_x);
-                    double tangential_force_y = factor * sqrt(abs(tangential_displacement_y)) * sign(tangential_displacement_y);
-                    double tangential_force_z = factor * sqrt(abs(tangential_displacement_z)) * sign(tangential_displacement_z);
+                    double factor_tangential_damping = -8 * eff_shear_modulus * sqrt_eff_radius;
+                    double sqrt_factor_tangential_damping = sqrt(factor_tangential_damping);
+
+                    double tangential_force_x = factor_tangential_damping * sqrt(abs(tangential_displacement_x)) * sign(tangential_displacement_x);
+                    double tangential_force_y = factor_tangential_damping * sqrt(abs(tangential_displacement_y)) * sign(tangential_displacement_y);
+                    double tangential_force_z = factor_tangential_damping * sqrt(abs(tangential_displacement_z)) * sign(tangential_displacement_z);
 
 
                     // add damping forces
@@ -111,11 +114,27 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
                     double normal_damping_force_y = factor_normal_damping_force * sqrt(S_normal_damping_y)  * relative_velocity_y;
                     double normal_damping_force_z = factor_normal_damping_force * sqrt(S_normal_damping_z)  * relative_velocity_z;
 
+                    double factor_tangential_damping_force = -1.825741858 * beta * sqrt(eff_mass);
+                    double tangential_damping_force_x = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt(abs(overlap_normalized_x))) * tangential_relative_velocity_x;
+                    double tangential_damping_force_y = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt(abs(overlap_normalized_y))) * tangential_relative_velocity_y;
+                    double tangential_damping_force_z = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt(abs(overlap_normalized_z))) * tangential_relative_velocity_z;
 
+                    double friction_restriction_x = 1.15 * abs(normal_force_x + normal_damping_force_x);
+                    double friction_restriction_y = 1.15 * abs(normal_force_y + normal_damping_force_y);
+                    double friction_restriction_z = 1.15 * abs(normal_force_z + normal_damping_force_z);
+
+                    // double total_damping_force_x = tangential_damping_force_x + tangential_force_x < friction_restriction_x ? tangential_damping_force_x + tangential_force_x : friction_restriction_x;
+                    // double total_damping_force_y = tangential_damping_force_y + tangential_force_y < friction_restriction_y ? tangential_damping_force_y + tangential_force_y : friction_restriction_y;
+                    // double total_damping_force_z = tangential_damping_force_z + tangential_force_z < friction_restriction_z ? tangential_damping_force_z + tangential_force_z : friction_restriction_z;
+
+                    double total_tangential_force_x = abs(tangential_force_x + tangential_damping_force_x) < friction_restriction_x ? tangential_force_x + tangential_damping_force_x : friction_restriction_x * sign(tangential_force_x + tangential_damping_force_x);
+                    double total_tangential_force_y = abs(tangential_force_y + tangential_damping_force_x) < friction_restriction_y ? tangential_force_y + tangential_damping_force_y : friction_restriction_y * sign(tangential_force_y + tangential_damping_force_y);
+                    double total_tangential_force_z = abs(tangential_force_z + tangential_damping_force_z) < friction_restriction_z ? tangential_force_z + tangential_damping_force_z : friction_restriction_z * sign(tangential_force_z + tangential_damping_force_z);
+                    
                     // Update forces on particle
-                    _force_i.x += normal_force_x + tangential_force_x + normal_damping_force_x;
-                    _force_i.y += normal_force_y + tangential_force_y + normal_damping_force_y;
-                    _force_i.z += normal_force_z + tangential_force_z + normal_damping_force_z;
+                    _force_i.x += normal_force_x + total_tangential_force_x + normal_damping_force_x;
+                    _force_i.y += normal_force_y + total_tangential_force_y + normal_damping_force_y;
+                    _force_i.z += normal_force_z + total_tangential_force_z + normal_damping_force_z;
                 }
             }
             if(_particle.flag == 1)
@@ -130,102 +149,112 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles) {
-        double time_step_sqr = time_step * time_step;
         Molecule _particle = particles[index];
-        double particle_diameter = _particle.diameter;
+        if (_particle.flag != 0) {
+            double time_step_sqr = time_step * time_step;
+            double particle_diameter = _particle.diameter;
 
-        // Update particle position
-        _particle.x += _particle.xv * time_step + (_particle.xa * time_step_sqr) / 2; // x(t + dt) = x(t) + v(t) * dt + a(t) * dt² / 2
-        _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr) / 2;
-        _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr) / 2;
+            // Update particle position
+            _particle.x += _particle.xv * time_step + (_particle.xa * time_step_sqr) / 2; // x(t + dt) = x(t) + v(t) * dt + a(t) * dt² / 2
+            _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr) / 2;
+            _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr) / 2;
 
-        double k = 10.0;
-        double b = 0.95;
-        // Wall collisions
-        // X direction
-        if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
-            double overlap = _particle.x < particle_diameter ? particle_diameter - _particle.x : _particle.x - (box_size - particle_diameter);
-            double relative_velocity = _particle.xv;
-            double spring_force = k * overlap;
-            double damping_force = b * relative_velocity;
-            double total_force = spring_force - damping_force;
-            double acceleration = total_force / _particle.mass; 
+            double k = 10.0;
+            double b = 0.95;
+            // Wall collisions
+            // X direction
+            if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
+                double overlap = _particle.x < particle_diameter ? particle_diameter - _particle.x : _particle.x - (box_size - particle_diameter);
+                double relative_velocity = _particle.xv;
+                double spring_force = k * overlap;
+                double damping_force = b * relative_velocity;
+                double total_force = spring_force - damping_force;
+                double acceleration = total_force / _particle.mass; 
 
-            // Update velocity due to collision
-            _particle.xv += (_particle.x < particle_diameter ? acceleration : -acceleration) * time_step;
-            
-            // Reflect position to simulate bounce
-            if (_particle.x < 0) {
-                _particle.x = 0;
-            } 
-            if (_particle.x > box_size)
-            {
-                _particle.x = box_size;
+                // Update velocity due to collision
+                _particle.xv += (_particle.x < particle_diameter ? acceleration : -acceleration) * time_step;
+                
+                // Reflect position to simulate bounce
+                if (_particle.x < 0) {
+                    _particle.x = 0;
+                } 
+                if (_particle.x > box_size)
+                {
+                    _particle.x = box_size;
+                }
             }
-        }
 
-        // Y direction
-        if (_particle.y < particle_diameter || _particle.y > box_size - particle_diameter) {
-            double overlap = _particle.y < particle_diameter ? particle_diameter - _particle.y : _particle.y - (box_size - particle_diameter);
-            double relative_velocity = _particle.yv;
-            double spring_force = k * overlap;
-            double damping_force = b * relative_velocity;
-            double total_force = spring_force - damping_force;
-            double acceleration = total_force / _particle.mass;
+            // Y direction
+            if (_particle.y < particle_diameter || _particle.y > box_size - particle_diameter) {
+                double overlap = _particle.y < particle_diameter ? particle_diameter - _particle.y : _particle.y - (box_size - particle_diameter);
+                double relative_velocity = _particle.yv;
+                double spring_force = k * overlap;
+                double damping_force = b * relative_velocity;
+                double total_force = spring_force - damping_force;
+                double acceleration = total_force / _particle.mass;
 
-            // Update velocity due to collision
-            _particle.yv += (_particle.y < particle_diameter ? acceleration : -acceleration) * time_step;
-            
-             // Reflect position to simulate bounce
-            if (_particle.y < 0) {
-                _particle.y = 0;
-            } 
-            if (_particle.y > box_size)
-            {
-                _particle.y = box_size;
+                // Update velocity due to collision
+                _particle.yv += (_particle.y < particle_diameter ? acceleration : -acceleration) * time_step;
+                
+                // Reflect position to simulate bounce
+                if (_particle.y < 0) {
+                    _particle.y = 0;
+                } 
+                if (_particle.y > box_size)
+                {
+                    _particle.y = box_size;
+                }
             }
-        }
 
-        // Z direction
-        if (_particle.z < particle_diameter || _particle.z > box_size - particle_diameter) {
-            double overlap = _particle.z < particle_diameter ? particle_diameter - _particle.z : _particle.z - (box_size - particle_diameter);
-            double relative_velocity = _particle.zv;
-            double spring_force = k * overlap;
-            double damping_force = b*relative_velocity;
-            double total_force = spring_force - damping_force;
-            double acceleration = total_force / _particle.mass;
+            // Z direction
+            if (_particle.z < particle_diameter || _particle.z > box_size - particle_diameter) {
+                double overlap = _particle.z < particle_diameter ? particle_diameter - _particle.z : _particle.z - (box_size - particle_diameter);
+                double relative_velocity = _particle.zv;
+                double spring_force = k * overlap;
+                double damping_force = b*relative_velocity;
+                double total_force = spring_force - damping_force;
+                double acceleration = total_force / _particle.mass;
 
-            // Update velocity due to collision
-            _particle.zv += (_particle.z < particle_diameter ? acceleration : -acceleration) * time_step;
-            
-             // Reflect position to simulate bounce
-            if (_particle.z < 0) {
-                _particle.z = 0;
-            } 
-            if (_particle.z > box_size)
-            {
-                _particle.z = box_size;
+                // Update velocity due to collision
+                _particle.zv += (_particle.z < particle_diameter ? acceleration : -acceleration) * time_step;
+                
+                // Reflect position to simulate bounce
+                if (_particle.z < 0) {
+                    _particle.z = 0;
+                } 
+                if (_particle.z > box_size)
+                {
+                    _particle.z = box_size;
+                }
             }
-        }
 
-        // Write updated particle back to global memory
-        particles[index] = _particle;
+            // Write updated particle back to global memory
+            particles[index] = _particle;
+        }
     }
 }
 
 __global__ void velocity_update(Molecule *particle, int num_particles,
-                                     double time_step){
+                                     double time_step, curandState *my_curandstate){
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles){
         Molecule _particle = particle[index];
+        if (_particle.flag != 0){
+            _particle.xv += _particle.xa * time_step;
+            if (abs(_particle.xv) < 0.01) _particle.xv +=  (curand_uniform(my_curandstate+index)) - 0.5;
+            _particle.yv += _particle.ya * time_step;
+            _particle.zv += _particle.za * time_step;
 
-        _particle.xv += _particle.xa * time_step; 
-        _particle.yv += _particle.ya * time_step;
-        _particle.zv += _particle.za * time_step;
-
-        particle[index] = _particle;
+            particle[index] = _particle;
+        }
     }
+}
+
+__global__ void setup_kernel(curandState *state){
+
+  int idx = threadIdx.x+blockDim.x*blockIdx.x;
+  curand_init(1234, idx, 0, &state[idx]);
 }
 
 int main(int argc, char *argv[]) {
@@ -239,7 +268,7 @@ int main(int argc, char *argv[]) {
     std::string particle_datafile = argv[3];
     size_t box_size = atoi(argv[4]);
     double poisson_ratio = atof(argv[5]);
-    double young_modulus = atof(argv[6]) * 2000;
+    double young_modulus = atof(argv[6]) * pow(10, 4);
 
     double cell_length_mulltiplier = 3.0;
 
@@ -278,6 +307,10 @@ int main(int argc, char *argv[]) {
     auto start_global = std::chrono::steady_clock::now();
     cudaError_t syncErr, asyncErr;
 
+    curandState *d_state;
+    cudaMalloc(&d_state, sizeof(curandState));
+    setup_kernel<<<NUM_BLOCK, NUM_THREAD>>>(d_state);
+
     for (int i = 0; i < num_steps; i++) {
         //auto start = std::chrono::steady_clock::now();
 
@@ -293,7 +326,7 @@ int main(int argc, char *argv[]) {
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
         if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
-        velocity_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step);
+        velocity_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, d_state);
         syncErr = cudaGetLastError();
         asyncErr = cudaDeviceSynchronize();
         if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));

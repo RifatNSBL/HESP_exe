@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    file << 1540 << "\n";
+    file << 2512 << "\n";
 
     for (double x = 0; x < 20 ; x++) {                                                           //pegs
         for (double y = 0; y < 47 ; y++) {
@@ -70,8 +70,8 @@ int main(int argc, char *argv[]) {
         }
     }
     for (double x = 0; x < 1 ; x++) {                                                           //collecting wall
-        for (double y = 0; y < 84 ; y++) {
-            std::vector<double> line = {1, 3.0 + 1.15*y, 12.0, 
+        for (double y = 0; y < 336 ; y++) {
+            std::vector<double> line = {1, 2.75 + 0.275*y, 12.0, 
                                         1.05, 0, 0, 0, 0, 0, 0, ball_size, 0};
             writeLineToFile(file, line);
         }
@@ -87,27 +87,27 @@ int main(int argc, char *argv[]) {
     }
 */
 
-    for (double x = 0; x < 20 ; x++) {                                                          //left handle
-        for (double y = 0; y < 1 ; y++) {
-            std::vector<double> line = {1, 48 -  0.88*x , 12.0, 
-                                        55.0 + 0.68*x, 0, 0, 0, 0, 0, 0, ball_size, 0};
-            writeLineToFile(file, line);
-        }
-    }
+    // for (double x = 0; x < 15 ; x++) {                                                          //left handle
+    //     for (double y = 0; y < 1 ; y++) {
+    //         std::vector<double> line = {1, 48 -  0.88*x , 12.0, 
+    //                                     55.0 + 0.68*x, 0, 0, 0, 0, 0, 0, ball_size, 0};
+    //         writeLineToFile(file, line);
+    //     }
+    // }
 
-    for (double x = 0; x < 20 ; x++) {                                                          //right handle
-        for (double y = 0; y < 1 ; y++) {
-            std::vector<double> line = {1, 51 +  0.88*x , 12.0, 
-                                        55.0 + 0.68*x, 0, 0, 0, 0, 0, 0, ball_size, 0};
-            writeLineToFile(file, line);
-        }
-    }
-    
-    for (double x = 0; x < 7 ; x++) {                                                           //dropping balls
-        for (double y = 0; y < 20 ; y++) {
+    // for (double x = 0; x < 15 ; x++) {                                                          //right handle
+    //     for (double y = 0; y < 1 ; y++) {
+    //         std::vector<double> line = {1, 51 +  0.88*x , 12.0, 
+    //                                     55.0 + 0.68*x, 0, 0, 0, 0, 0, 0, ball_size, 0};
+    //         writeLineToFile(file, line);
+    //    }
+    //}
+    // before - 140
+    for (double x = 0; x < 30 ; x++) {                                                           //dropping balls
+        for (double y = 0; y < 30 ; y++) {
             //double random_val = generateRandomNumber(min, max);
-            std::vector<double> line = {1, 45 + x*1.5, 12.0, 
-                                        59 + 1.2 * y , 0, 0, 0, 0, 0, 0, 1.1*ball_size, 1};
+            std::vector<double> line = {1, 27.5 + x*1.5, 12.0, 
+                                        59 + 1.1 * y , 0, 0, 0, 0, 0, 0, 0.85*ball_size, 1};
             writeLineToFile(file, line);
         }
     }
