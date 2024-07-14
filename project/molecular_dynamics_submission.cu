@@ -88,7 +88,6 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
                     double tangential_displacement_z = tangential_relative_velocity_z * time_step;
 
                     double factor_tangential_damping = -8 * eff_shear_modulus * sqrt_eff_radius;
-                    double sqrt_factor_tangential_damping = sqrt(factor_tangential_damping);
 
                     double tangential_force_x = factor_tangential_damping * sqrt(abs(tangential_displacement_x)) * sign(tangential_displacement_x);
                     double tangential_force_y = factor_tangential_damping * sqrt(abs(tangential_displacement_y)) * sign(tangential_displacement_y);
@@ -105,9 +104,13 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
                     double sqrt_eff_mass = sqrt(eff_mass);
                     double factor_normal_damping = 2 * eff_young_modulus * sqrt_eff_radius;
 
-                    double S_normal_damping_x = factor_normal_damping * sqrt(abs(overlap_normalized_x));
-                    double S_normal_damping_y = factor_normal_damping * sqrt(abs(overlap_normalized_y));
-                    double S_normal_damping_z = factor_normal_damping * sqrt(abs(overlap_normalized_z));
+                    double sqrt_overlap_damping_x = sqrt(abs(overlap_normalized_x));
+                    double sqrt_overlap_damping_y = sqrt(abs(overlap_normalized_y));
+                    double sqrt_overlap_damping_z = sqrt(abs(overlap_normalized_z));
+
+                    double S_normal_damping_x = factor_normal_damping * sqrt_overlap_damping_x;
+                    double S_normal_damping_y = factor_normal_damping * sqrt_overlap_damping_y;
+                    double S_normal_damping_z = factor_normal_damping * sqrt_overlap_damping_z;
 
                     double factor_normal_damping_force = -1.825741858 * beta * sqrt_eff_mass;
                     double normal_damping_force_x = factor_normal_damping_force * sqrt(S_normal_damping_x)  * relative_velocity_x;
@@ -115,9 +118,9 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
                     double normal_damping_force_z = factor_normal_damping_force * sqrt(S_normal_damping_z)  * relative_velocity_z;
 
                     double factor_tangential_damping_force = -1.825741858 * beta * sqrt(eff_mass);
-                    double tangential_damping_force_x = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt(abs(overlap_normalized_x))) * tangential_relative_velocity_x;
-                    double tangential_damping_force_y = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt(abs(overlap_normalized_y))) * tangential_relative_velocity_y;
-                    double tangential_damping_force_z = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt(abs(overlap_normalized_z))) * tangential_relative_velocity_z;
+                    double tangential_damping_force_x = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt_overlap_damping_x) * tangential_relative_velocity_x;
+                    double tangential_damping_force_y = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt_overlap_damping_y) * tangential_relative_velocity_y;
+                    double tangential_damping_force_z = factor_tangential_damping_force * sqrt(abs(factor_tangential_damping) * sqrt_overlap_damping_z) * tangential_relative_velocity_z;
 
                     double friction_restriction_x = 1.15 * abs(normal_force_x + normal_damping_force_x);
                     double friction_restriction_y = 1.15 * abs(normal_force_y + normal_damping_force_y);
@@ -159,8 +162,8 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
             _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr) / 2;
             _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr) / 2;
 
-            double k = 10.0;
-            double b = 0.95;
+            double k = 50.0;
+            double b = 0.75;
             // Wall collisions
             // X direction
             if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
@@ -305,7 +308,7 @@ int main(int argc, char *argv[]) {
     int NUM_BLOCK = (num_particles + NUM_THREAD - 1) / NUM_THREAD;
 
     auto start_global = std::chrono::steady_clock::now();
-    cudaError_t syncErr, asyncErr;
+    // cudaError_t syncErr, asyncErr;
 
     curandState *d_state;
     cudaMalloc(&d_state, sizeof(curandState));
@@ -315,22 +318,22 @@ int main(int argc, char *argv[]) {
         //auto start = std::chrono::steady_clock::now();
 
         position_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size);
-        syncErr = cudaGetLastError();
-        asyncErr = cudaDeviceSynchronize();
-        if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
-        if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
+        // syncErr = cudaGetLastError();
+        // asyncErr = cudaDeviceSynchronize();
+        // if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
+        // if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
         calculate_forces<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, box_size, eff_young_modulus, eff_shear_modulus);
-        syncErr = cudaGetLastError();
-        asyncErr = cudaDeviceSynchronize();
-        if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
-        if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
+        // syncErr = cudaGetLastError();
+        // asyncErr = cudaDeviceSynchronize();
+        // if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
+        // if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
         velocity_update<<<NUM_BLOCK, NUM_THREAD>>>(particles, num_particles, time_step, d_state);
-        syncErr = cudaGetLastError();
-        asyncErr = cudaDeviceSynchronize();
-        if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
-        if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
+        // syncErr = cudaGetLastError();
+        // asyncErr = cudaDeviceSynchronize();
+        // if (syncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(syncErr));
+        // if (asyncErr != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(asyncErr));
 
         if (i % 10 == 0) {
             // auto end = std::chrono::steady_clock::now();

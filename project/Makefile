@@ -26,7 +26,7 @@ mk-target-dir:
 $(BUILD_DIR)/$(TEST_CASE): $(TEST_CASE)_submission.cu Force.h Molecule.h util.h
 	rm -r $(OUTPUT_DIR) && mkdir $(OUTPUT_DIR)
 	cp $(INPUT_FILE) $(BUILD_DIR)
-	g++ -O3 createfile.cpp -o do_file
+	g++ -O3 createfile_1to2.cpp -o do_file
 	./do_file $(BOX_SIZE) $(BALL_SIZE)
 	nvcc -O3 -arch=sm_89 $(TEST_CASE)_submission.cu -o $(BUILD_DIR)/$(TEST_CASE)
 	./$(BUILD_DIR)/$(TEST_CASE) $(PARAMETERS)
