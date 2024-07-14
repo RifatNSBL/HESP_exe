@@ -6,7 +6,7 @@ OUTPUT_DIR = visualization
 # Parameters
 TIME_STEP = 0.003
 NUM_STEPS = 5000
-BOX_SIZE = 50
+BOX_SIZE = 100
 INPUT_FILE = points.txt
 POISSON_RATIO = 0.49
 YOUNG_MODULUS = 0.05

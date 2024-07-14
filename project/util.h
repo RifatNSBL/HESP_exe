@@ -38,6 +38,7 @@ double fill_particles(Molecule *grid, size_t num_molecules, double cell_length_m
             grid[i].ya = values[8];
             grid[i].za = values[9];
             grid[i].diameter = values[10];  // Add size
+            grid[i].flag = values[11];
             grid[i].orientation = Quaternion(0.0, 1.0, 0.0, 0.0);
             //grid[i].orientation = Quaternion(0.0, 0.0, 90.0 * 2 * M_PI / 360);
             grid[i].inertia = 0.4 * grid[i].mass * grid[i].diameter * grid[i].diameter / 4;

@@ -19,7 +19,7 @@ __device__ void update_acc(Molecule &particle, Force &force){
     force    = _force;
 }
 
-__device__ int sign(double value){ return value > 0 ? 1 : -1;}
+__device__ int sign(double value){ return value > 0 ? 1 : -1; }
 
 __global__ void calculate_forces(Molecule *particles, size_t num_particles, double time_step,
                                  size_t box_size, double eff_young_modulus, double eff_shear_modulus){
@@ -27,74 +27,104 @@ __global__ void calculate_forces(Molecule *particles, size_t num_particles, doub
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < num_particles) {
         Molecule _particle = particles[index];
+        if (_particle.flag != 0)
+        {
+            Force _force_i;
+            _force_i.x = 0;
+            _force_i.y = 0;
+            _force_i.z = -2.0;
 
-        Force _force_i;
-        _force_i.x = 0;
-        _force_i.y = 0;
-        _force_i.z = -2.0;
+            for(int i = 0; i < num_particles; i++) {
+                Molecule _particle_i = particles[i];
+                if (i == index) continue; 
+                double x_proj = _particle.x - _particle_i.x;
+                double y_proj = _particle.y - _particle_i.y;
+                double z_proj = _particle.z - _particle_i.z;
 
-        for(int i = 0; i < num_particles; i++) {
-            if (i == index) continue; 
-            Molecule _particle_i = particles[i];
-            double x_proj = _particle.x - _particle_i.x;
-            double y_proj = _particle.y - _particle_i.y;
-            double z_proj = _particle.z - _particle_i.z;
+                double dist_sqr = x_proj * x_proj + y_proj * y_proj + z_proj * z_proj;
+                double dist = sqrt(dist_sqr);
 
-            double dist_sqr = x_proj * x_proj + y_proj * y_proj + z_proj * z_proj;
-            double dist = sqrt(dist_sqr);
+                double overlap_distance = (_particle.diameter + _particle_i.diameter) / 2.0;
+                if (dist < overlap_distance) { // Check if particles are overlapping
 
-            double overlap_distance = (_particle.diameter + _particle_i.diameter) / 2;
-            if (dist < overlap_distance) { // Check if particles are overlapping
+                    double overlap = overlap_distance - dist;
+                    double sqrt_overlap = sqrt(overlap);
+                    //double cube_sqrt_overlap = sqrt_overlap * sqrt_overlap * sqrt_overlap;
 
-                double overlap = overlap_distance - dist;
-                double sqrt_overlap = sqrt(overlap);
-                //double cube_sqrt_overlap = sqrt_overlap * sqrt_overlap * sqrt_overlap;
+                    double normalized_x_proj = x_proj / dist;
+                    double normalized_y_proj = y_proj / dist;
+                    double normalized_z_proj = z_proj / dist;
 
-                double normalized_x_proj = x_proj / dist;
-                double normalized_y_proj = y_proj / dist;
-                double normalized_z_proj = z_proj / dist;
+                    double eff_radius = (_particle.diameter * _particle_i.diameter) / (2 * (_particle.diameter + _particle_i.diameter));
+                    double sqrt_eff_radius = sqrt(eff_radius);
 
-                // Calculate damping force components
-                double relative_velocity_x = _particle.xv - _particle_i.xv;
-                double relative_velocity_y = _particle.yv - _particle_i.yv;
-                double relative_velocity_z = _particle.zv - _particle_i.zv;
+                    //find projections of overlap distance
+                    double overlap_normalized_x = overlap * normalized_x_proj;
+                    double overlap_normalized_y = overlap * normalized_y_proj;
+                    double overlap_normalized_z = overlap * normalized_z_proj;
+
+                    // Calculate damping force components
+                    double relative_velocity_x = _particle.xv - _particle_i.xv;
+                    double relative_velocity_y = _particle.yv - _particle_i.yv;
+                    double relative_velocity_z = _particle.zv - _particle_i.zv;
+                    
+                    double normal_relative_velocity_x = relative_velocity_x * normalized_x_proj * normalized_x_proj;
+                    double normal_relative_velocity_y = relative_velocity_y * normalized_y_proj * normalized_y_proj;
+                    double normal_relative_velocity_z = relative_velocity_z * normalized_z_proj * normalized_z_proj;
+
+                    double normal_force_abs = 1.333 * eff_young_modulus * sqrt_eff_radius;
+
+                    double normal_force_x = normal_force_abs * sqrt(overlap_normalized_x * overlap_normalized_x) * sign(x_proj);
+                    double normal_force_y = normal_force_abs * sqrt(overlap_normalized_y * overlap_normalized_y) * sign(y_proj);
+                    double normal_force_z = normal_force_abs * sqrt(overlap_normalized_z * overlap_normalized_z) * sign(z_proj);
+                    
+                    double tangential_relative_velocity_x = relative_velocity_x - normal_relative_velocity_x;
+                    double tangential_relative_velocity_y = relative_velocity_y - normal_relative_velocity_y;
+                    double tangential_relative_velocity_z = relative_velocity_z - normal_relative_velocity_z;
+
+                    double tangential_displacement_x = tangential_relative_velocity_x * time_step;
+                    double tangential_displacement_y = tangential_relative_velocity_y * time_step;
+                    double tangential_displacement_z = tangential_relative_velocity_z * time_step;
+
+                    double factor = -8 * eff_shear_modulus * sqrt_eff_radius;
+                    double tangential_force_x = factor * sqrt(abs(tangential_displacement_x)) * sign(tangential_displacement_x);
+                    double tangential_force_y = factor * sqrt(abs(tangential_displacement_y)) * sign(tangential_displacement_y);
+                    double tangential_force_z = factor * sqrt(abs(tangential_displacement_z)) * sign(tangential_displacement_z);
 
 
-                
-                double normal_relative_velocity_x = relative_velocity_x * normalized_x_proj * normalized_x_proj;
-                double normal_relative_velocity_y = relative_velocity_y * normalized_y_proj * normalized_y_proj;
-                double normal_relative_velocity_z = relative_velocity_z * normalized_z_proj * normalized_z_proj;
+                    // add damping forces
+                    double restitution = 0.8;
+                    double log_rest = log(restitution);
+                    double sqr_log_rest = log_rest * log_rest;
+                    double sum = sqr_log_rest + 9.8696;
+                    double beta = - log_rest / sum; 
+                    double eff_mass = (_particle.mass * _particle_i.mass) / (_particle.mass + _particle_i.mass);
+                    double sqrt_eff_mass = sqrt(eff_mass);
+                    double factor_normal_damping = 2 * eff_young_modulus * sqrt_eff_radius;
 
-                double eff_radius = (_particle.diameter * _particle_i.diameter) / (2 * (_particle.diameter + _particle_i.diameter));
-                double sqrt_eff_radius = sqrt(eff_radius);
+                    double S_normal_damping_x = factor_normal_damping * sqrt(abs(overlap_normalized_x));
+                    double S_normal_damping_y = factor_normal_damping * sqrt(abs(overlap_normalized_y));
+                    double S_normal_damping_z = factor_normal_damping * sqrt(abs(overlap_normalized_z));
 
-                double normal_force_abs = 1.333 * eff_young_modulus * sqrt_eff_radius;
-                
-                double tangential_relative_velocity_x = relative_velocity_x - normal_relative_velocity_x;
-                double tangential_relative_velocity_y = relative_velocity_y - normal_relative_velocity_y;
-                double tangential_relative_velocity_z = relative_velocity_z - normal_relative_velocity_z;
+                    double factor_normal_damping_force = -1.825741858 * beta * sqrt_eff_mass;
+                    double normal_damping_force_x = factor_normal_damping_force * sqrt(S_normal_damping_x)  * relative_velocity_x;
+                    double normal_damping_force_y = factor_normal_damping_force * sqrt(S_normal_damping_y)  * relative_velocity_y;
+                    double normal_damping_force_z = factor_normal_damping_force * sqrt(S_normal_damping_z)  * relative_velocity_z;
 
-                double tangential_displacement_x = tangential_relative_velocity_x * time_step;
-                double tangential_displacement_y = tangential_relative_velocity_y * time_step;
-                double tangential_displacement_z = tangential_relative_velocity_z * time_step;
 
-                double factor = -8 * eff_shear_modulus * sqrt_eff_radius;
-                double tangential_force_x = factor * sqrt(abs(tangential_displacement_x)) * sign(tangential_displacement_x);
-                double tangential_force_y = factor * sqrt(abs(tangential_displacement_y)) * sign(tangential_displacement_y);
-                double tangential_force_z = factor * sqrt(abs(tangential_displacement_z)) * sign(tangential_displacement_z);
-
-                // Update forces on particle
-                _force_i.x += normal_force_abs * sqrt(normalized_x_proj * normalized_x_proj) * normalized_x_proj + tangential_force_x;
-                _force_i.y += normal_force_abs * sqrt(normalized_y_proj * normalized_y_proj) * normalized_y_proj + tangential_force_y;
-                // double cube_proj_z = normalized_z_proj * normalized_z_proj * normalized_z_proj;
-                // double cude_sqrt_proj_z = sqrt(cube_proj_z);
-                _force_i.z += normal_force_abs * sqrt(normalized_x_proj * normalized_x_proj) * normalized_x_proj + tangential_force_z;
+                    // Update forces on particle
+                    _force_i.x += normal_force_x + tangential_force_x + normal_damping_force_x;
+                    _force_i.y += normal_force_y + tangential_force_y + normal_damping_force_y;
+                    _force_i.z += normal_force_z + tangential_force_z + normal_damping_force_z;
+                }
+            }
+            if(_particle.flag == 1)
+            {
+            update_acc(particles[index], _force_i); // a(t + 1/2 dt)
             }
         }
-        update_acc(particles[index], _force_i); // a(t + 1/2 dt)
     }
 }
-
 
 __global__ void position_update(Molecule *particles, int num_particles, double time_step, size_t box_size) { // spring constant and damping coefficient
 
@@ -109,8 +139,8 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
         _particle.y += _particle.yv * time_step + (_particle.ya * time_step_sqr) / 2;
         _particle.z += _particle.zv * time_step + (_particle.za * time_step_sqr) / 2;
 
-        double k = 50.0;
-        double b = 0.4;
+        double k = 10.0;
+        double b = 0.95;
         // Wall collisions
         // X direction
         if (_particle.x < particle_diameter || _particle.x > box_size - particle_diameter) {
@@ -182,8 +212,6 @@ __global__ void position_update(Molecule *particles, int num_particles, double t
         particles[index] = _particle;
     }
 }
-
-
 
 __global__ void velocity_update(Molecule *particle, int num_particles,
                                      double time_step){

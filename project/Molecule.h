@@ -8,6 +8,7 @@ struct Molecule
     double xv, yv, zv;
     double xa, ya, za;
     double diameter;  // Add size attribute
+    int flag;
     int cell_id;
     Quaternion orientation;
     double inertia;
